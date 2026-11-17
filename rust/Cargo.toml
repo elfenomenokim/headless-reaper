@@ -1,0 +1,18 @@
+[package]
+name = "headless-reaper"
+version = "0.1.0"
+edition = "2021"
+description = "Find and stop orphaned automation browsers; dry run by default"
+license = "MIT"
+repository = "https://github.com/elfenomenokim/headless-reaper"
+
+[dependencies]
+serde_json = "1"
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
+[profile.release]
+lto = true
+codegen-units = 1
+strip = true
