@@ -1,4 +1,5 @@
 use crate::{detect::Group, reap::Result};
+const VERSION: &str = env!("CARGO_PKG_VERSION");
 pub fn bytes(count: u64) -> String {
     let mut v = count as f64;
     for unit in ["B", "KB", "MB", "GB", "TB"] {
@@ -82,12 +83,12 @@ pub fn render(
         }
     );
     if groups.is_empty() {
-        return format!("headless-reaper 0.1.0: no orphaned headless browsers{suffix}.");
+        return format!("headless-reaper {VERSION}: no orphaned headless browsers{suffix}.");
     }
     let processes = groups.iter().map(|g| g.members.len()).sum::<usize>();
     let mut lines = vec![
         format!(
-            "headless-reaper 0.1.0: {} orphaned {}, {processes} {}, {} RSS{suffix}",
+            "headless-reaper {VERSION}: {} orphaned {}, {processes} {}, {} RSS{suffix}",
             groups.len(),
             plural(groups.len(), "group", "groups"),
             plural(processes, "process", "processes"),

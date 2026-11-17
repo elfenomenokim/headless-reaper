@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-__version__ = "0.1.1"
+__version__ = "0.1.2"
 
 from .clones import clean_clones  # noqa: E402
 from .detect import Group, find_groups  # noqa: E402

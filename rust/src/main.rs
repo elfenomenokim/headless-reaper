@@ -5,7 +5,7 @@ mod reap;
 mod report;
 use serde_json::{json, Value};
 use std::{env, io};
-const VERSION: &str = "0.1.0";
+const VERSION: &str = env!("CARGO_PKG_VERSION");
 const HELP: &str = include_str!("help.txt");
 #[derive(Default)]
 struct Args {
