@@ -1,303 +1,150 @@
 # headless-reaper
+[한국어](README.ko.md)
 
-[한국어](https://github.com/elfenomenokim/headless-reaper/blob/main/README.ko.md)
+A command-line tool that finds and stops orphaned headless browsers, with a dry run by default.
 
-Find the headless browsers that a test or automation tool abandoned, and stop them — dry run by default.
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/elfenomenokim/headless-reaper/main/docs/demo/dark.gif">
+  <img src="https://raw.githubusercontent.com/elfenomenokim/headless-reaper/main/docs/demo/light.gif" alt="A disposable orphan browser is listed, reaped, and absent from the final scan" width="1200">
+</picture>
+
+The demo starts a dedicated headless shell from a short-lived parent, then reaps that browser's `/tmp` profile. It never launches Google Chrome. [Recording source](docs/demo/light.tape).
+
+## Install
+
+```sh
+pipx install headless-reaper
+uv tool install headless-reaper
+pip install headless-reaper
+```
+
+Python 3.9+. Wheels install the Rust CLI and an importable Python reference. Source installs need Rust; `cargo install --path rust --locked` installs the standalone command.
+
+| Platform | Observed behavior |
+|---|---|
+| macOS arm64 | Orphan detection and cleanup; live-parent browser preserved |
+| Ubuntu 24.04 arm64 | Chromium and Firefox orphan cleanup; live-parent browser preserved |
+| Windows x64 | Both editions exit 2: browser reaping is unsupported |
+
+## Quick start
+
+Start with a dry run. These outputs came from a disposable headless-shell process. The environment variable limits every command to that one profile; replace the path with your own job's profile directory.
+
+```console
+$ export HEADLESS_REAPER_PATH=/tmp/reaper-demo.58q834un
+
+```
 
 ```console
 $ headless-reaper
-headless-reaper 0.1.0: 1 orphaned group, 8 processes, 705 MB RSS (998 processes scanned)
+headless-reaper 0.1.0: 1 orphaned group, 4 processes, 224.8 MB RSS (1024 processes scanned, paths /tmp/reaper-demo.58q834un)
 
-ROOT   AGE     RSS     PIDS  PROFILE
-13251  1m 12s  705 MB  8     /tmp/hr-readme/profile
+ROOT   AGE  RSS       PIDS  PROFILE
+18952  1s   224.8 MB  4     /tmp/reaper-demo.58q834un
        why: headless, temp profile, remote debugging; launcher gone (reparented to launchd 1)
 
 dry run: nothing was killed. Rerun with --kill to terminate these groups.
 ```
 
-A test launches Chrome in headless mode, then crashes, or calls `process.exit()` before its cleanup runs. The browser is reparented to the init process, keeps its tabs and its renderers, and holds memory for days. One such run left 57 browser processes holding about 24 GB.
-
-This tool reads the process table, groups each browser tree under its main process, and kills a tree only when its launcher is gone. It never touches a browser a person is using.
-
-## Why
-
-- **Only orphans.** A group is killed only when its parent is PID 1, an init process, or a PID that no longer exists. A browser whose launcher is still alive is reported as nothing and left alone.
-- **Only automation.** A target must carry an automation signal: `--headless`, a temp or automation `--user-data-dir`, or a remote debugging switch together with such a profile. A visible browser on a real user profile is never a target, even when it has `--remote-debugging-port`.
-- **Whole trees.** Renderers, GPU and utility helpers are grouped with their main process, so the reported RSS is the memory the tree actually holds, and one command stops all of it.
-- **A safe ladder.** `--kill` sends SIGTERM to every process in the group, waits 10 seconds by default, then sends SIGKILL to what survived. A recycled PID is detected by comparing start times before a signal is sent.
-- **Two editions.** The Rust CLI reads macOS through libproc/sysctl and Linux through `/proc`. The Python reference uses only its standard library (`ps` on macOS, `/proc` on Linux). Neither needs a browser or network to scan.
-- **Optional profile cleanup.** `--remove-profiles` deletes the temp profile of a reaped group only when it is under a temp root, no live browser uses it, and no singleton lock is held.
-
-## Install
-
 ```console
-$ pipx install headless-reaper   # recommended: isolated, on PATH
-$ uvx headless-reaper --help     # or run without installing
-$ pip install headless-reaper    # inside a project
+$ headless-reaper --kill
+headless-reaper 0.1.0: 1 orphaned group, 4 processes, 224.8 MB RSS (1024 processes scanned, paths /tmp/reaper-demo.58q834un)
+
+ROOT   AGE  RSS       PIDS  PROFILE
+18952  1s   224.8 MB  4     /tmp/reaper-demo.58q834un
+       why: headless, temp profile, remote debugging; launcher gone (reparented to launchd 1)
+
+reaped 1 group: sent SIGTERM to 4 of 4 processes, SIGKILL to 0.
 ```
-
-Python 3.9 or newer for the Python package. macOS and Linux have process backends. Both editions report Windows as unsupported and exit 2.
-
-### Rust command and Python library in one package
-
-The wheel uses maturin `bindings = "bin"`: `pipx install headless-reaper` installs the native `headless-reaper` executable. The same wheel includes `src/headless_reaper`, so `import headless_reaper` and `python -m headless_reaper` still use the pure-Python reference. No Python extension or interpreter is needed by the Rust executable itself.
-
-Build from this source with a current stable Rust toolchain:
-
-```console
-$ cargo install --path rust --locked
-$ python -m venv .venv
-$ .venv/bin/pip install maturin
-$ .venv/bin/maturin build --release --out dist
-$ .venv/bin/pip install dist/*.whl
-$ .venv/bin/python -c 'import headless_reaper; print(headless_reaper.__version__)'
-```
-
-A source install through pip also needs Rust. To run only the reference edition from a checkout, use `PYTHONPATH=src python -m headless_reaper`. The Rust crate is edition 2021; its direct dependencies are `libc` (Unix process APIs) and `serde_json` (JSON encoding). `Cargo.lock` pins their resolved versions.
-
-The Rust CLI keeps the reference's flags, environment variables, table, JSON fields and exit codes. `rust/parity.sh` compares both commands, normalizing changing snapshot counters (scanned processes, age and RSS) while preserving their types. Run `rust/parity.sh --json --path /tmp/your-test` to compare a live fixture. Mutating parity requires an empty scope because the first command consumes any target. Use `cargo test --manifest-path rust/Cargo.toml` for the live-parent, default-profile, helper and path-boundary fixtures.
-
-`.github/workflows/wheels.yml` prepares macOS arm64/x86_64, manylinux x86_64/aarch64 and Windows x86_64 wheels plus an sdist. It builds artifacts only; it does not upload to PyPI.
-
-### Measured editions
-
-Measured 2026-11-17, Rust 1.100.0, release builds. Each time is the median of 20 sequential subprocess runs, including process launch. Startup uses `--version`; scan uses `--json --path /tmp/headless-reaper-bench-empty` and still reads the whole process table. Peak RSS is a separate scan measured with `/usr/bin/time` (`-l` on macOS, `-v` on Linux). Filesystem caches were warm; these are two machines and their current process populations, not a general benchmark.
-
-| OS / CPU | Edition | Startup (ms) | Scan (ms) | Scan peak RSS (KiB) | Binary (bytes) |
-|---|---|---:|---:|---:|---:|
-| macOS 27 / arm64 | Python 3.12.8 | 36.078 | 122.098 | 23,296 | — |
-| macOS 27 / arm64 | Rust | 2.856 | 11.315 | 3,136 | 620,000 |
-| Ubuntu 24.04 / arm64 | Python 3.12 | 68.953 | 76.615 | 15,144 | — |
-| Ubuntu 24.04 / arm64 | Rust | 0.841 | 5.564 | 1,892 | 594,688 |
-
-Rust's lower scan time and RSS justify preferring the native command in scheduled callers, with `python -m headless_reaper` as the fallback when it is missing.
-
-On both OSes, a deliberate orphan using a literal throwaway profile under `/tmp` passed table/JSON parity, was reaped with zero running survivors, and had its temp profile removed. A second browser with a live parent was preserved. The macOS fixture had 10 processes; the Linux Chromium headless-shell fixture had 6. The 18-case CLI parity suite passed on macOS, Linux and Windows; Windows Rust was built with the GNU x86_64 toolchain and its unsupported-backend response was exercised. The macOS binary also scanned successfully on a second arm64 Mac.
-
-## Usage
-
-### Look
 
 ```console
 $ headless-reaper
+headless-reaper 0.1.0: no orphaned headless browsers (1024 processes scanned, paths /tmp/reaper-demo.58q834un).
 ```
 
-This is a dry run: nothing is signalled. The header gives the total, then one row per browser tree with its root PID, age, resident memory, process count and profile directory, and a `why` line that names the signals and the reason the launcher counts as gone.
+The second scan confirms that the scoped browser is gone. Process counts, PIDs and RSS will differ on your machine.
 
-### Stop
+## Why
 
-```console
-$ headless-reaper --kill
-```
+A crashed test can leave its browser running after the test process is gone. You can find it with `ps`, but deciding which helpers belong to it takes another step. `headless-reaper` groups the browser tree and checks whether its launcher still exists before proposing cleanup.
 
-```console
-headless-reaper 0.1.0: 1 orphaned group, 7 processes, 705.1 MB RSS (1003 processes scanned)
+Use your test framework's browser-close call for normal teardown. Use `ps` or a process monitor when you need to inspect arbitrary processes. This tool handles leftovers: it requires a recognized browser, an automation signal, and a missing launcher. A default personal profile is excluded.
 
-ROOT   AGE     RSS       PIDS  PROFILE
-13251  1m 53s  705.1 MB  7     /tmp/hr-readme/profile
-       why: headless, temp profile, remote debugging; launcher gone (reparented to launchd 1)
+## Measurements
 
-reaped 1 group: sent SIGTERM to 7 of 7 processes, SIGKILL to 0.
-```
+Saved measurements from 2026-11-17: median of 20 sequential subprocess runs, warm filesystem cache, release Rust 1.100.0. Startup ran `--version`; scanning ran `--json --path /tmp/headless-reaper-bench-empty` and still read the whole process table. Peak RSS came from a separate `/usr/bin/time` scan. These are two hosts and their process populations, not a claim about every machine.
 
-When a process ignores SIGTERM, the same run ends with `SIGKILL to 1`, and a process that survives even that is named in the output. The exit code is 0 when every target is gone and 1 when one survived.
+| Platform / edition | Startup (ms) | Scan (ms) | Peak RSS (KiB) |
+|---|---:|---:|---:|
+| macOS arm64 / Python 3.12.8 | 36.078 | 122.098 | 23,296 |
+| macOS arm64 / Rust | 2.856 | 11.315 | 3,136 |
+| Ubuntu 24.04 arm64 / Python 3.12 | 68.953 | 76.615 | 15,144 |
+| Ubuntu 24.04 arm64 / Rust | 0.841 | 5.564 | 1,892 |
 
-### Scope it
-
-A shared machine runs several jobs at once. Two filters keep the sweep inside one of them:
-
-```console
-$ headless-reaper --path /srv/app/_tmp
-$ headless-reaper --kill --path /srv/app/_tmp --min-age 30m
-```
-
-`--path` matches the profile directory, not the executable. Repeat it for more than one prefix. `--min-age` skips trees younger than the given duration, so a browser started a minute ago by a job that is still starting up is left alone. Durations are `30s`, `10m`, `2h`, `1d`, or a plain number of seconds.
-
-### Remove the temp profiles
-
-```console
-$ headless-reaper --kill --remove-profiles
-```
-
-```console
-reaped 1 group: sent SIGTERM to 8 of 8 processes, SIGKILL to 0.
-removed temp profile: /tmp/hr-readme/profile
-```
-
-A profile is kept, with the reason printed, when it is not under a temp root, when a live browser still uses it, when a `SingletonLock` points at a live process, or when the group left a survivor. Playwright and Puppeteer create a fresh profile per launch, so on a long-lived test machine these directories add up too.
-
-### Machine-readable
-
-```console
-$ headless-reaper --json | python3 -m json.tool
-```
-
-```json
-{
-    "ok": true,
-    "version": "0.1.0",
-    "platform": "darwin",
-    "dry_run": true,
-    "scanned": 1013,
-    "min_age_seconds": 0,
-    "paths": [
-        "/tmp/hr-json"
-    ],
-    "totals": {
-        "groups": 1,
-        "processes": 13,
-        "rss_bytes": 1320402944
-    },
-    "groups": [
-        {
-            "root_pid": 22308,
-            "pids": [
-                22308,
-                22316,
-                22317,
-                22319,
-                22322,
-                22324,
-                22325,
-                22326,
-                22328,
-                22329,
-                22542,
-                22560,
-                22596
-            ],
-            "processes": 13,
-            "profile": "/tmp/hr-json/profile",
-            "signals": [
-                "headless",
-                "temp profile"
-            ],
-            "reason": "launcher gone (reparented to launchd 1)",
-            "age_seconds": 10,
-            "age": "10s",
-            "rss_bytes": 1320402944,
-            "rss": "1.2 GB"
-        }
-    ],
-    "reap": null
-}
-```
-
-With `--kill`, `reap` becomes an object with `targets`, `sigterm`, `sigkill`, `survivors`, `already_gone`, `denied`, `removed_profiles` and `kept_profiles`. An error prints `{"ok": false, "error": "…"}` and exits non-zero.
-
-### Code-signing clones on macOS
-
-Chrome can leave a code-signing copy of its app bundle under the user's X temp directory on each launch, especially after it is killed. Chromium, Edge and Chrome for Testing use the same kind of directory. On one measured host, 174 clones accounted for 193 GB apparent size; deleting 171 unused clones increased real free space by only 1.5 GB. Hard links and shared APFS blocks explain why directory totals can be much larger than the physical space recovered. The directories still accumulate and distort disk alerts.
-
-```console
-$ headless-reaper --clean-clones                   # dry run, default min age 10m
-$ headless-reaper --kill --clean-clones --min-age 30m
-$ headless-reaper --all-leftovers                  # --kill + --clean-clones + --remove-profiles
-```
-
-`--clean-clones` alone inspects clones without scanning browser groups or deleting anything. It examines only `code_sign_clone.*` directories under the recognized browser bundle directories in `$(getconf DARWIN_USER_TEMP_DIR)/../X`. It rejects directory symlinks. `--path` still filters browser profiles; it does not expand or change this fixed clone scope. On Linux and Windows clone-only mode says `nothing to do on this OS`; Windows `--all-leftovers` still exits 2 because the browser backend is unsupported.
-
-A clone must be older than `--min-age` and unused by running processes. Both editions use native `proc_pidpath` for exact executable paths and `lsof -nP` for open and mapped files. Some same-user protected processes refuse native descriptor-path queries, so those queries cannot replace lsof here. Matching includes file device/inode identity: Chrome clones can hard-link the same executable as `/Applications`, and a pathname alone can name a different link on the next scan. A running browser can therefore preserve several shared clones. Run scheduled cleanup after Chrome quits. A failed open-file scan preserves all clones and exits 1.
-
-The dry run reports eligible count and apparent bytes. JSON adds a `clones` object with `candidates`, `kept`, `removed`, `apparent_bytes`, `allocated_bytes`, `reclaimable_bytes_estimate` and `free_space_change_bytes`. Allocated blocks can be shared, so the reclaimable estimate is `null`. A deletion pass reports the observed filesystem free-space change, which can also include concurrent disk activity. It rechecks usage before deleting anything.
-
-The local cleanup fixture removed an aged unused clone and preserved an open file reached through a hard link outside the clone, plus a symlink to a directory outside X. The manual Rust sweep changed the fixture-inclusive count from 6 to 5. It did not quit any real Chrome window.
-
-### From cron or a launcher
-
-The tool is quiet when there is nothing to do, and exits 0 after a successful sweep:
-
-```console
-$ 30 4 * * * headless-reaper --kill --min-age 30m
-```
-
-`--min-age 30m` is the useful guard for a scheduled sweep: a browser that started five minutes ago belongs to a job that is probably still running, and its launcher is still alive anyway.
-
-## Options
+## Reference
 
 | Option | Default | Meaning |
 |---|---|---|
-| `--kill` | off | Terminate the groups: SIGTERM, wait, then SIGKILL |
-| `--clean-clones` | off | Inspect unused macOS code-sign clones; delete only with `--kill` |
-| `--all-leftovers` | off | `--kill --clean-clones --remove-profiles` |
-| `--min-age DURATION` | `0` (`10m` with clone cleanup) | Skip groups younger than this (`10m`, `2h`, `1d`) |
-| `--path PREFIX` | every path | Only profiles under `PREFIX`; repeatable |
-| `--remove-profiles` | off | With `--kill`, delete the temp profile of a reaped group |
+| `--kill` | Off | SIGTERM, wait, then SIGKILL for surviving targets |
+| `--path PREFIX` | All profiles | Limit profile paths; repeat for several prefixes |
+| `--min-age DURATION` | `0` | Skip younger groups; accepts `30s`, `10m`, `2h`, `1d` |
 | `--grace DURATION` | `10s` | Wait between SIGTERM and SIGKILL |
-| `--json` | off | Print one machine-readable object |
-| `--version` | | Print the version |
+| `--remove-profiles` | Off | With `--kill`, remove eligible temporary profiles |
+| `--json` | Off | Report groups, totals, cleanup results and errors as JSON |
+| `--clean-clones` | Off | Inspect unused macOS code-signing clones; add `--kill` to delete |
+| `--all-leftovers` | Off | Combine `--kill`, `--clean-clones` and `--remove-profiles` |
 
-Exit codes: `0` dry run, or every target reaped; `1` a target survived or the process table could not be read; `2` bad usage or an unsupported platform.
+Exit **0** means a dry run succeeded or all targets were reaped. Exit **1** means a target survived or inspection failed. Exit **2** means invalid usage or an unsupported platform.
 
-## What counts as a target
+`HEADLESS_REAPER_PATH`, `HEADLESS_REAPER_MIN_AGE`, and `HEADLESS_REAPER_GRACE` set defaults. Paths use `:` as the separator on macOS/Linux. Flags override environment values. There is no configuration file.
 
-A process becomes a group root only when all of these hold:
+### Target selection
 
-1. Its executable is a browser family the tool knows: Chrome, Chromium, Edge, Chrome for Testing, Playwright's Chromium and headless shell, Puppeteer's Chrome, Firefox (including Playwright's build), or WebKit's mini browser.
-2. It is a browser main process, not a helper. A helper carries `--type=…`, `-contentproc`, or a name such as `… Helper`, `WebKitWebProcess`, `chrome_crashpad_handler`.
-3. It carries an automation signal: `--headless`, or a `--user-data-dir` that is under a temp root or is shaped like an automation profile (`playwright_*dev_profile-*`, `puppeteer_dev_*_profile-*`, `scoped_dir*`), or a `--remote-debugging-*` switch together with such a profile.
-4. Its launcher is gone: the parent is PID 1, a process named `launchd`, `init` or `systemd`, or a PID that no longer exists.
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/elfenomenokim/headless-reaper/main/docs/diagrams/reap-flow-dark.svg">
+  <img src="https://raw.githubusercontent.com/elfenomenokim/headless-reaper/main/docs/diagrams/reap-flow-light.svg" alt="Select an eligible browser, report it, and terminate only when --kill is requested" width="540">
+</picture>
 
-The whole tree under that root is the group. A helper that outlived the root and was reparented to init joins the group through its shared profile path instead of becoming a stray group.
+An eligible target is a recognized automation browser whose launcher is gone and whose path and age match your scope. Personal default profiles are excluded. KILL is only for processes surviving the grace period.
 
-Never a target:
+A root must be a recognized Chrome/Chromium, Edge, Firefox, or WebKit browser process, not a renderer or helper. It must carry `--headless`, a temporary or automation profile, or remote debugging together with such a profile. Its parent must be PID 1, an init process, or missing from the snapshot.
 
-- a browser on macOS's or Linux's real user profile (`~/Library/Application Support/Google/Chrome`, `~/.config/google-chrome`, `~/.mozilla/firefox`, and siblings), even with `--headless`;
-- a visible browser without an automation profile, even with `--remote-debugging-port`;
-- a browser whose parent process is alive.
+The tool groups descendants under the root. Before signalling, it compares process start times to avoid signalling a recycled PID. It excludes default personal profiles and browsers whose launcher is alive.
 
-## Environment
+### Profile and clone cleanup
 
-| Variable | Same as | Example |
-|---|---|---|
-| `HEADLESS_REAPER_MIN_AGE` | `--min-age` | `30m` |
-| `HEADLESS_REAPER_PATH` | `--path` | `/srv/app/_tmp:/srv/other/_tmp` |
-| `HEADLESS_REAPER_GRACE` | `--grace` | `5s` |
+`--remove-profiles` requires `--kill`. Cleanup preserves a profile outside temporary roots, one still used by a live browser, one with a live singleton lock, or one whose group left a survivor.
 
-A command-line flag wins over its variable. `HEADLESS_REAPER_PATH` uses the platform path separator: `:` on macOS and Linux.
+On macOS, `--clean-clones` examines recognized browser `code_sign_clone.*` directories under the current user's X temp directory. It uses a ten-minute minimum age unless you set one. Directory symlinks and live uses are preserved; matching includes device/inode identity because clones may share hard links. An open-file scan failure prevents deletion.
 
-## Python API
+Clone reports distinguish apparent size, allocated blocks, and observed free-space change. Shared APFS blocks mean apparent size is not reclaimable space. `--path` filters browser profiles; it does not change the fixed clone scope. Clone-only mode does nothing on other operating systems.
+
+### Python
 
 ```python
 import time
+from headless_reaper import find_groups, list_processes
 
-from headless_reaper import clean_clones, cleanup_profiles, find_groups, list_processes, reap
-
-procs = list_processes()
-groups = find_groups(procs, now=time.time(), min_age=600, paths=("/srv/app/_tmp",))
+groups = find_groups(list_processes(), now=time.time(),
+                     min_age=600, paths=("/tmp/my-test",))
 for group in groups:
-    print(group.root.pid, group.profile, group.signals, group.rss_bytes())
-
-result = reap(groups)
-print(result.sigterm, result.sigkill, result.survivors)
-
-removed, kept = cleanup_profiles(groups)
-
-clones = clean_clones(kill=False, min_age=600)  # macOS only; a dry run
+    print(group.root.pid, group.profile, group.rss_bytes())
 ```
 
-`list_processes()` returns `Proc` records (`pid`, `ppid`, `rss_bytes`, `started_at`, `state`, `exe`, `argv`). `find_groups()` returns `Group` records with `root`, `members`, `profile`, `signals`, `reason`, and helpers `pids`, `rss_bytes()`, `age_seconds(now)`.
+`reap(groups)` terminates selected groups; `cleanup_profiles(groups)` handles their temporary profiles. `clean_clones(kill=False, min_age=600)` performs a macOS clone dry run. `python -m headless_reaper` selects the Python CLI explicitly.
 
 ## Limits
 
-Tested on:
+- A browser launched directly by launchd or systemd looks orphaned. Scope cleanup with `--path`; an age threshold alone does not establish ownership.
+- WebKit's argument detection was checked, but a live WebKit browser was not exercised because the test host lacked GTK 4.
+- macOS/Linux x86_64 backends were not exercised. Windows has no browser backend.
+- The Python macOS backend reads `ps` output and cannot recover profile paths containing spaces reliably. Rust reads exact argv through `KERN_PROCARGS2`; Linux reads `/proc` in both editions.
+- A visible automation browser with a custom home-directory profile can remain after its launcher exits. The detector does not treat every remote-debugging browser as disposable.
 
-- macOS 27, arm64, Google Chrome 157: a deliberate orphan made by launching headless Chrome from a short-lived parent, then a second one from a live parent. The first was found and stopped, the second was left alone, and the machine's normal Chrome windows were untouched.
-- Ubuntu 24.04, arm64, Playwright Chromium headless shell 159 and Playwright Firefox 159: a deliberate orphan for each, found, stopped, and its temp profile removed. The real Playwright launch arguments (`--headless`, `--user-data-dir=/tmp/playwright_chromiumdev_profile-…`, `--remote-debugging-pipe`; `-headless -profile …` for Firefox) are what the detector matches.
+## Contributing
 
-Not tested:
+Issues and platform reports are welcome; run `cargo test --manifest-path rust/Cargo.toml` from the source checkout. See [AGENTS.md](AGENTS.md) for the code layout and safety rules.
 
-- **Windows browser detection.** Both editions deliberately have no backend. The Rust GNU x86_64 build and the matching exit-2 response were checked; no browser is scanned or killed there.
-- **WebKit live.** The Playwright WebKit build on the test host was missing its GTK 4 libraries, so only its argument shape (`pw_run.sh --headless --user-data-dir=/tmp/playwright_webkitdev_profile-…`) was checked against the detector, not a running browser.
-- **macOS/Linux x86_64.** Their process backends have not been run on x86_64. The Windows x86_64 build only exercises the unsupported-platform branch.
-- **Python macOS `ps` and spaces.** The reference cannot recover a profile path containing spaces from `ps`. Rust uses `KERN_PROCARGS2` for exact argv and libproc for PID, parent, start time and RSS. Linux reads exact argv in both editions. An inaccessible macOS PID is retained as an unknown process so its children cannot be mistaken for orphans.
-- **A browser started directly by launchd or systemd.** Its parent is the init process, so it looks exactly like an orphan. Scope it with `--path`, or give it a `--min-age` larger than its restart interval.
-- **A visible automation browser on a real profile.** Puppeteer with `headless: false` and a project profile under your home directory is not reaped, even if its launcher died. That is deliberate: the tool prefers to leave a visible window running over closing one a person may be using. Put such profiles under a temp root if you want them swept.
+License: [MIT](LICENSE).
 
-## Agents
-
-If you are an AI agent asked to clean up leftover browsers, read [AGENTS.md](https://github.com/elfenomenokim/headless-reaper/blob/main/AGENTS.md). The Claude Code skill lives in [`skill/headless-reaper/SKILL.md`](https://github.com/elfenomenokim/headless-reaper/blob/main/skill/headless-reaper/SKILL.md); install it by copying that folder to `~/.claude/skills/headless-reaper/`.
-
-## License
-
-MIT — see [LICENSE](https://github.com/elfenomenokim/headless-reaper/blob/main/LICENSE).
+Unofficial; not affiliated with Google, Mozilla, Microsoft, or the browser automation projects mentioned here.

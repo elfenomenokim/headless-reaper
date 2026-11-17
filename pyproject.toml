@@ -4,8 +4,8 @@ build-backend = "maturin"
 
 [project]
 name = "headless-reaper"
-version = "0.1.0"
-description = "Find and stop orphaned headless browsers — Chrome, Chromium, Edge, Playwright, Puppeteer, Firefox, WebKit — left behind by tests and automation. Dry run by default."
+version = "0.1.1"
+description = "A command-line tool that finds and stops orphaned headless browsers, with a dry run by default."
 readme = "README.md"
 requires-python = ">=3.9"
 license = "MIT"
