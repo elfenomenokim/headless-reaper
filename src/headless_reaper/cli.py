@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import os
 import re
 import sys
@@ -20,7 +21,9 @@ ENV_MIN_AGE = "HEADLESS_REAPER_MIN_AGE"
 ENV_PATH = "HEADLESS_REAPER_PATH"
 ENV_GRACE = "HEADLESS_REAPER_GRACE"
 
-_DURATION_RE = re.compile(r"^(\d+(?:\.\d+)?)\s*([smhd]?)$", re.IGNORECASE)
+# ASCII digits only: the Rust edition parses the same grammar with
+# `char::is_ascii_digit`, so a Unicode decimal digit must fail in both.
+_DURATION_RE = re.compile(r"^([0-9]+(?:\.[0-9]+)?)\s*([smhd]?)$", re.IGNORECASE)
 _UNIT_SECONDS = {"": 1.0, "s": 1.0, "m": 60.0, "h": 3600.0, "d": 86400.0}
 
 
@@ -33,11 +36,15 @@ class _Parser(argparse.ArgumentParser):
 
 def parse_duration(text: str, option: str) -> float:
     match = _DURATION_RE.match((text or "").strip())
-    if match is None:
-        raise ValueError(
-            f"{option}: expected a duration such as 30s, 10m, 2h or 1d, got {text!r}"
-        )
-    return float(match.group(1)) * _UNIT_SECONDS[match.group(2).lower()]
+    if match is not None:
+        seconds = float(match.group(1)) * _UNIT_SECONDS[match.group(2).lower()]
+        # A digit string long enough to overflow f64 must be a usage error, not
+        # an infinity that later crashes the report (`int(inf)`).
+        if math.isfinite(seconds):
+            return seconds
+    raise ValueError(
+        f"{option}: expected a duration such as 30s, 10m, 2h or 1d, got {text!r}"
+    )
 
 
 def build_parser() -> argparse.ArgumentParser:

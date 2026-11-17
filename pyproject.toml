@@ -4,7 +4,7 @@ build-backend = "maturin"
 
 [project]
 name = "headless-reaper"
-version = "0.1.2"
+version = "0.1.3"
 description = "A command-line tool that finds and stops orphaned headless browsers, with a dry run by default."
 readme = "README.md"
 requires-python = ">=3.9"

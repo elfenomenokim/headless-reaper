@@ -52,6 +52,7 @@ cases = [sys.argv[1:]] if len(sys.argv)>1 else [
     ['--json','--min-age','bad'], ['--json','--remove-profiles'],
     ['--json','--unknown'], ['--json','--path'],
     ['--json','--min-age','-1'], ['--help=x'], ['--json','--j','--min-age=1m'],
+    ['--json','--min-age','9'*400], ['--json','--min-age','\u0663s'], ['--json','--grace','9'*400],
     ['--clean-clones','--json','--min-age','1d'], ['--clean-clones','--min-age','1d'],
     ['--all-leftovers','--json','--min-age','36500d','--path','/tmp/headless-reaper-parity-empty'],
 ]
