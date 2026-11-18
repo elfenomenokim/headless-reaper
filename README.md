@@ -1,7 +1,16 @@
+<img src="https://raw.githubusercontent.com/elfenomenokim/headless-reaper/main/docs/logo.svg" width="96" height="96" alt="headless-reaper: a headless browser window crossed out">
+
 # headless-reaper
 [한국어](README.ko.md)
 
 A command-line tool that finds and stops orphaned headless browsers, with a dry run by default.
+
+Python 3.9+ · Rust
+
+[![pypi](https://img.shields.io/pypi/v/headless-reaper?label=pypi)](https://pypi.org/project/headless-reaper/)
+[![license](https://img.shields.io/github/license/elfenomenokim/headless-reaper)](https://github.com/elfenomenokim/headless-reaper/blob/main/LICENSE)
+
+On macOS the Rust edition scans in 11.3 ms and starts in 2.9 ms; the Python edition takes 122.1 ms and 36.1 ms, from the saved 20-run measurement.
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/elfenomenokim/headless-reaper/main/docs/demo/dark.gif">
@@ -143,8 +152,10 @@ for group in groups:
 
 ## Contributing
 
-Issues and platform reports are welcome; run `cargo test --manifest-path rust/Cargo.toml` from the source checkout. See [AGENTS.md](AGENTS.md) for the code layout and safety rules.
+Issues and platform reports are welcome; run `cargo test --manifest-path rust/Cargo.toml` from the source checkout. See [CONTRIBUTING.md](CONTRIBUTING.md) for every check and the review process, and [AGENTS.md](AGENTS.md) for the code layout and safety rules.
 
-License: [MIT](LICENSE).
+## License
+
+MIT. See [LICENSE](LICENSE).
 
 Unofficial; not affiliated with Google, Mozilla, Microsoft, or the browser automation projects mentioned here.

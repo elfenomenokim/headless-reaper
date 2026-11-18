@@ -1,7 +1,16 @@
+<img src="https://raw.githubusercontent.com/elfenomenokim/headless-reaper/main/docs/logo.svg" width="96" height="96" alt="지워지는 헤드리스 브라우저 창 아이콘">
+
 # headless-reaper
 [English](README.md)
 
 실행한 프로그램이 종료된 뒤 남은 헤드리스 브라우저를 찾아 정리하는 명령줄 도구입니다. 기본 실행은 목록만 보여 줍니다.
+
+Python 3.9+ · Rust
+
+[![pypi](https://img.shields.io/pypi/v/headless-reaper?label=pypi)](https://pypi.org/project/headless-reaper/)
+[![license](https://img.shields.io/github/license/elfenomenokim/headless-reaper)](https://github.com/elfenomenokim/headless-reaper/blob/main/LICENSE)
+
+macOS에서 Rust 판은 스캔 11.3ms, 시작 2.9ms입니다. Python 판은 같은 작업에 122.1ms, 36.1ms가 걸립니다. 저장된 20회 측정에서 가져왔습니다.
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/elfenomenokim/headless-reaper/main/docs/demo/dark.gif">
@@ -141,8 +150,10 @@ for group in groups:
 
 ## 기여
 
-버그나 실행 결과는 [이슈](https://github.com/elfenomenokim/headless-reaper/issues)에 남겨 주세요. 소스 확인 명령: `cargo test --manifest-path rust/Cargo.toml`. 작업 구조와 주의사항은 [AGENTS.md](AGENTS.md)에 있습니다.
+버그나 실행 결과는 [이슈](https://github.com/elfenomenokim/headless-reaper/issues)에 남겨 주세요. 소스 확인 명령: `cargo test --manifest-path rust/Cargo.toml`. 확인 항목과 리뷰 방식은 [CONTRIBUTING.md](CONTRIBUTING.md), 작업 구조와 주의사항은 [AGENTS.md](AGENTS.md)에 있습니다.
 
-라이선스: [MIT](LICENSE).
+## 라이선스
+
+MIT입니다. [LICENSE](LICENSE)를 보세요.
 
 비공식 도구이며 Google·Mozilla·Microsoft 및 여기서 언급한 브라우저 자동화 프로젝트와 제휴 관계가 없습니다.
