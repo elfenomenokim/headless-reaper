@@ -1,3 +1,5 @@
+<div align="center">
+
 <img src="https://raw.githubusercontent.com/elfenomenokim/headless-reaper/main/docs/logo.svg" width="96" height="96" alt="headless-reaper: a headless browser window crossed out">
 
 # headless-reaper
@@ -11,6 +13,10 @@ Python 3.9+ · Rust
 [![license](https://img.shields.io/github/license/elfenomenokim/headless-reaper)](https://github.com/elfenomenokim/headless-reaper/blob/main/LICENSE)
 
 On macOS the Rust edition scans in 11.3 ms and starts in 2.9 ms; the Python edition takes 122.1 ms and 36.1 ms, from the saved 20-run measurement.
+
+[Install](#install) · [Quick start](#quick-start) · [Why](#why)
+
+</div>
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/elfenomenokim/headless-reaper/main/docs/demo/dark.gif">

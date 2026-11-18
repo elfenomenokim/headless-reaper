@@ -1,3 +1,5 @@
+<div align="center">
+
 <img src="https://raw.githubusercontent.com/elfenomenokim/headless-reaper/main/docs/logo.svg" width="96" height="96" alt="지워지는 헤드리스 브라우저 창 아이콘">
 
 # headless-reaper
@@ -11,6 +13,10 @@ Python 3.9+ · Rust
 [![license](https://img.shields.io/github/license/elfenomenokim/headless-reaper)](https://github.com/elfenomenokim/headless-reaper/blob/main/LICENSE)
 
 macOS에서 Rust 판은 스캔 11.3ms, 시작 2.9ms입니다. Python 판은 같은 작업에 122.1ms, 36.1ms가 걸립니다. 저장된 20회 측정에서 가져왔습니다.
+
+[설치](#설치) · [시작하기](#시작하기) · [만든 이유](#만든-이유)
+
+</div>
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/elfenomenokim/headless-reaper/main/docs/demo/dark.gif">
