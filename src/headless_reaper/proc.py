@@ -24,7 +24,14 @@ class UnsupportedPlatform(RuntimeError):
 
 @dataclass(frozen=True)
 class Proc:
-    """One process, as seen in a single snapshot."""
+    """One process, as seen in a single snapshot.
+
+    ``cwd`` is the process's working directory when it could be read (Linux
+    ``/proc/<pid>/cwd``, macOS ``lsof``); ``None`` when it cannot be
+    determined.  A process enumerated but not fully readable stays in the
+    snapshot with the fields that could not be read left empty, so an
+    inaccessible launcher is never mistaken for a missing parent.
+    """
 
     pid: int
     ppid: int
@@ -33,6 +40,7 @@ class Proc:
     state: str
     exe: str
     argv: tuple[str, ...]
+    cwd: Optional[str] = None
 
     @property
     def name(self) -> str:
@@ -76,6 +84,34 @@ def _parse_etime(value: str) -> float | None:
     return float(days * 86400 + hours * 3600 + minutes * 60 + seconds)
 
 
+def _parse_lsof_cwd(text: str) -> dict[int, str]:
+    """Parse ``lsof -a -d cwd -Fn``: ``p<pid>`` lines followed by ``n<path>``."""
+    cwd: dict[int, str] = {}
+    current: Optional[int] = None
+    for line in text.splitlines():
+        if line.startswith("p") and line[1:].isdigit():
+            current = int(line[1:])
+        elif line.startswith("n/") and current is not None:
+            cwd[current] = line[1:]
+    return cwd
+
+
+def _macos_cwd() -> dict[int, str]:
+    """Best-effort cwd per pid (same user only); empty when lsof is unavailable."""
+    try:
+        completed = subprocess.run(
+            ["lsof", "-a", "-d", "cwd", "-Fn"],
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return {}
+    if completed.returncode != 0:
+        return {}
+    return _parse_lsof_cwd(completed.stdout)
+
+
 def _macos_procs(now: float) -> list[Proc]:
     table = _ps(["-ww", "-Ao", "pid=,ppid=,rss=,etime=,state=,comm="])
     arguments: dict[int, str] = {}
@@ -83,6 +119,7 @@ def _macos_procs(now: float) -> list[Proc]:
         head = line.strip().split(None, 1)
         if len(head) == 2 and head[0].isdigit():
             arguments[int(head[0])] = head[1]
+    cwd = _macos_cwd()
 
     procs: list[Proc] = []
     for line in table.splitlines():
@@ -108,32 +145,47 @@ def _macos_procs(now: float) -> list[Proc]:
                 state=fields[4],
                 exe=exe,
                 argv=tuple(arguments.get(pid, exe).split()),
+                cwd=cwd.get(pid),
             )
         )
     return procs
 
 
-def _linux_uptime() -> float:
+def _linux_uptime(root: str) -> float:
     try:
-        with open("/proc/uptime", "rb") as handle:
+        with open(os.path.join(root, "uptime"), "rb") as handle:
             return float(handle.read().split()[0])
     except (OSError, ValueError, IndexError):
         return 0.0
 
 
-def _linux_procs(now: float) -> list[Proc]:
+def _read_link(path: str) -> Optional[str]:
+    try:
+        return os.readlink(path)
+    except OSError:
+        return None
+
+
+def _linux_procs(now: float, root: str = "/proc") -> list[Proc]:
     page_size = os.sysconf("SC_PAGE_SIZE")
     clock_ticks = os.sysconf("SC_CLK_TCK")
-    uptime = _linux_uptime()
+    uptime = _linux_uptime(root)
     procs: list[Proc] = []
-    for entry in os.scandir("/proc"):
+    for entry in os.scandir(root):
         if not entry.name.isdigit():
             continue
         pid = int(entry.name)
+        base = os.path.join(root, entry.name)
         try:
-            with open(f"/proc/{pid}/stat", "rb") as handle:
+            with open(os.path.join(base, "stat"), "rb") as handle:
                 stat = handle.read().decode("utf-8", "replace")
+        except FileNotFoundError:
+            continue  # process exited mid-scan
         except OSError:
+            # alive but unreadable: keep an unknown entry so a child does not
+            # mistake its live launcher for a missing parent
+            procs.append(Proc(pid=pid, ppid=-1, rss_bytes=0, started_at=now,
+                              state="?", exe="", argv=()))
             continue
         closing = stat.rfind(")")
         if closing < 0:
@@ -148,11 +200,21 @@ def _linux_procs(now: float) -> list[Proc]:
             rss_pages = int(fields[21])
         except (IndexError, ValueError):
             continue
+        cwd = _read_link(os.path.join(base, "cwd"))
         try:
-            with open(f"/proc/{pid}/cmdline", "rb") as handle:
+            with open(os.path.join(base, "cmdline"), "rb") as handle:
                 raw = handle.read()
+        except FileNotFoundError:
+            continue  # process exited mid-scan
         except OSError:
-            raw = b""
+            # argv unreadable (permissions): keep the process with unknown
+            # argv; it can still serve as a live parent
+            procs.append(Proc(pid=pid, ppid=ppid,
+                              rss_bytes=max(0, rss_pages) * page_size,
+                              started_at=now - max(0.0, uptime - start_ticks / clock_ticks),
+                              state=state, exe=_read_link(os.path.join(base, "exe")) or "",
+                              argv=(), cwd=cwd))
+            continue
         parts = [part.decode("utf-8", "replace") for part in raw.split(b"\0") if part]
         if not parts:
             continue  # kernel thread, or a process that exited mid-scan
@@ -162,7 +224,7 @@ def _linux_procs(now: float) -> list[Proc]:
             parts = parts[0].split()
         argv = tuple(parts)
         try:
-            exe = os.readlink(f"/proc/{pid}/exe")
+            exe = os.readlink(os.path.join(base, "exe"))
         except OSError:
             exe = argv[0]
         started_at = now - max(0.0, uptime - start_ticks / clock_ticks)
@@ -175,6 +237,7 @@ def _linux_procs(now: float) -> list[Proc]:
                 state=state,
                 exe=exe,
                 argv=argv,
+                cwd=cwd,
             )
         )
     return procs

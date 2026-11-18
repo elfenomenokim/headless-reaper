@@ -8,7 +8,14 @@ import signal
 import time
 from dataclasses import dataclass, field
 
-from .detect import Group, is_browser, is_default_profile, is_temp_path, profile_path
+from .detect import (
+    Group,
+    is_browser,
+    is_default_profile,
+    is_temp_path,
+    profile_path,
+    raw_profile,
+)
 from .proc import Proc, list_processes
 
 __all__ = ["ReapResult", "cleanup_profiles", "reap"]
@@ -107,9 +114,7 @@ def reap(groups: list[Group], grace: float = 10.0) -> ReapResult:
     return result
 
 
-def _profile_refusal(
-    path: str, procs: list[Proc], reaped: set[int]
-) -> str | None:
+def _profile_refusal(path: str, procs: list[Proc]) -> str | None:
     if not os.path.isdir(path):
         return "directory is gone"
     if os.path.islink(path):
@@ -120,13 +125,17 @@ def _profile_refusal(
         return "default user profile"
     real = os.path.realpath(path)
     for proc in procs:
-        if proc.pid in reaped or proc.state.upper().startswith("Z"):
+        if proc.state.upper().startswith("Z"):
             continue
         if not is_browser(proc):
             continue
         profile = profile_path(proc)
         if profile is not None and os.path.realpath(profile) == real:
             return f"a live browser still uses it (pid {proc.pid})"
+        if profile is None and raw_profile(proc) is not None:
+            # the live browser's relative profile cannot be resolved against
+            # its working directory, so non-use cannot be proven
+            return f"a live browser uses a relative profile that cannot be resolved (pid {proc.pid})"
         if path in proc.args_text or real in proc.args_text:
             return f"a live browser still uses it (pid {proc.pid})"
     lock = os.path.join(path, "SingletonLock")
@@ -143,17 +152,24 @@ def _profile_refusal(
 def cleanup_profiles(groups: list[Group]) -> tuple[list[str], list[tuple[str, str]]]:
     """Delete the temp profile of a reaped group, and only when it is safe.
 
+    The fresh process table decides: membership in ``groups`` is a claim that
+    the processes died, not proof.  A group member still alive in the snapshot
+    keeps its profile, as does any live browser still using the directory.
     Returns (removed paths, [(kept path, reason)]).
     """
     removed: list[str] = []
     kept: list[tuple[str, str]] = []
-    reaped = {proc.pid for group in groups for proc in group.members}
     procs = list_processes()
+    survivors = set(_alive_pids(_targets(groups), procs))
     for group in groups:
         path = group.profile
         if path is None:
             continue
-        refusal = _profile_refusal(path, procs, reaped)
+        live = [proc.pid for proc in group.members if proc.pid in survivors]
+        if live:
+            kept.append((path, f"a group process is still running (pid {live[0]})"))
+            continue
+        refusal = _profile_refusal(path, procs)
         if refusal is not None:
             kept.append((path, refusal))
             continue

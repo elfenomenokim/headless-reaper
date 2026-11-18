@@ -37,6 +37,7 @@ __all__ = [
     "is_helper",
     "is_temp_path",
     "profile_path",
+    "raw_profile",
 ]
 
 BROWSER_BASENAMES = frozenset(
@@ -192,14 +193,30 @@ def _option_value(proc: Proc, names: tuple[str, ...]) -> str | None:
     return None
 
 
-def profile_path(proc: Proc) -> str | None:
-    """The Chrome `--user-data-dir` or Firefox `-profile` path, as an absolute path."""
-    value = _option_value(proc, _CHROME_PROFILE_OPTIONS) or _option_value(
+def raw_profile(proc: Proc) -> str | None:
+    """The profile argument exactly as the process carries it (may be relative)."""
+    return _option_value(proc, _CHROME_PROFILE_OPTIONS) or _option_value(
         proc, _FIREFOX_PROFILE_OPTIONS
     )
+
+
+def profile_path(proc: Proc) -> str | None:
+    """The Chrome `--user-data-dir` or Firefox `-profile` path, as an absolute path.
+
+    A relative argument belongs to the *browser's* working directory, never to
+    this tool's.  When that directory cannot be determined the profile cannot
+    be safely located; returning ``None`` keeps the directory from being
+    misclassified or deleted.
+    """
+    value = raw_profile(proc)
     if not value:
         return None
-    return os.path.abspath(os.path.expanduser(value))
+    value = os.path.expanduser(value)
+    if not os.path.isabs(value):
+        if proc.cwd is None:
+            return None
+        value = os.path.join(proc.cwd, value)
+    return os.path.abspath(value)
 
 
 def is_temp_path(path: str) -> bool:
@@ -302,7 +319,11 @@ def _candidate(proc: Proc) -> _Candidate | None:
 
 
 def _members(
-    root: Proc, key: str, procs: list[Proc], children: dict[int, list[Proc]]
+    root: Proc,
+    key: str,
+    procs: list[Proc],
+    children: dict[int, list[Proc]],
+    by_pid: dict[int, Proc],
 ) -> tuple[Proc, ...]:
     collected: dict[int, Proc] = {root.pid: root}
     stack = [root.pid]
@@ -315,14 +336,20 @@ def _members(
 
     # Helpers can outlive their root and be reparented to init. They carry the
     # same profile path, so they join the tree instead of becoming loose groups.
+    # Only genuinely orphaned helpers: a process whose own launcher is alive
+    # must never become a signal target through this back door.
     for proc in procs:
         if proc.pid in collected:
             continue
-        if not (is_browser(proc) or is_helper(proc)):
+        if not is_helper(proc):
             continue
         profile = profile_path(proc)
-        if profile is not None and os.path.realpath(profile) == key:
-            collected[proc.pid] = proc
+        if profile is None or os.path.realpath(profile) != key:
+            continue
+        gone, _reason = _launcher_gone(proc, by_pid)
+        if not gone:
+            continue
+        collected[proc.pid] = proc
     return tuple(sorted(collected.values(), key=lambda proc: proc.pid))
 
 
@@ -360,7 +387,7 @@ def find_groups(
     for key, (candidate, reason) in roots.items():
         group = Group(
             root=candidate.proc,
-            members=_members(candidate.proc, key, procs, children),
+            members=_members(candidate.proc, key, procs, children, by_pid),
             profile=candidate.profile,
             signals=candidate.signals,
             reason=reason,

@@ -19,6 +19,7 @@ Run from the repository root:
 ```sh
 cargo build --release --locked --manifest-path rust/Cargo.toml
 cargo test --manifest-path rust/Cargo.toml
+PYTHONPATH=src python3 -m unittest discover -s tests
 bash rust/parity.sh --json --path /tmp/reaper-parity-empty
 PYTHONPATH=src python3 -m headless_reaper --help
 python3 -m compileall -q src

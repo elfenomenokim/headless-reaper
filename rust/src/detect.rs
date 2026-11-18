@@ -214,10 +214,42 @@ fn option(p: &Proc, names: &[&str]) -> Option<String> {
     }
     None
 }
-pub fn profile(p: &Proc) -> Option<String> {
+pub fn raw_profile(p: &Proc) -> Option<String> {
     option(p, &["--user-data-dir", "-user-data-dir"])
         .or_else(|| option(p, &["-profile", "--profile"]))
-        .map(|p| absolute(&p).to_string_lossy().into_owned())
+}
+pub fn profile(p: &Proc) -> Option<String> {
+    let raw = raw_profile(p)?;
+    let path = if raw == "~" || raw.starts_with("~/") {
+        env::var_os("HOME")
+            .map(PathBuf::from)
+            .unwrap_or_default()
+            .join(raw.strip_prefix("~/").unwrap_or(""))
+    } else {
+        PathBuf::from(&raw)
+    };
+    let joined = if path.is_absolute() {
+        path
+    } else {
+        // a relative profile belongs to the browser's working directory,
+        // never to this tool's; when it cannot be determined the profile is
+        // not safe to classify or delete
+        PathBuf::from(p.cwd.as_ref()?).join(path)
+    };
+    Some(normalize(&joined).to_string_lossy().into_owned())
+}
+fn normalize(path: &Path) -> PathBuf {
+    let mut out = PathBuf::new();
+    for part in path.components() {
+        match part {
+            Component::ParentDir => {
+                out.pop();
+            }
+            Component::CurDir => {}
+            _ => out.push(part),
+        }
+    }
+    out
 }
 #[derive(Clone)]
 pub struct Group {
@@ -240,6 +272,15 @@ impl Group {
             .iter()
             .map(|p| p.started)
             .fold(f64::INFINITY, f64::min)
+    }
+}
+fn launcher_gone(p: &Proc, by_pid: &HashMap<i32, &Proc>) -> bool {
+    if p.ppid == 1 {
+        return true;
+    }
+    match by_pid.get(&p.ppid) {
+        None => true,
+        Some(parent) => ["launchd", "init", "systemd"].contains(&parent.name().to_lowercase().as_str()),
     }
 }
 pub fn groups(procs: &[Proc], now: f64, min_age: f64, paths: &[String]) -> Vec<Group> {
@@ -336,8 +377,14 @@ pub fn groups(procs: &[Proc], now: f64, min_age: f64, paths: &[String]) -> Vec<G
                 stack.extend(kids.iter().map(|p| p.pid))
             }
         }
+        // Only genuinely orphaned helpers may join through the profile match:
+        // a process whose own launcher is alive was already rejected by the
+        // root-selection live-parent guard and must not become a target here.
         for p in procs {
-            if (is_browser(p) || helper(p)) && profile(p).is_some_and(|s| real(&s) == key) {
+            if helper(p)
+                && profile(p).is_some_and(|s| real(&s) == key)
+                && launcher_gone(p, &by_pid)
+            {
                 seen.insert(p.pid);
             }
         }
@@ -380,6 +427,7 @@ mod tests {
             zombie: false,
             exe: "chromium".into(),
             argv,
+            cwd: None,
         }
     }
     #[test]
@@ -395,6 +443,7 @@ mod tests {
             zombie: false,
             exe: String::new(),
             argv: vec![],
+            cwd: None,
         };
         let default = if cfg!(target_os = "macos") {
             "Library/Application Support/Google/Chrome"
@@ -418,6 +467,58 @@ mod tests {
         assert_eq!(found[0].pids(), vec![100, 104]);
         assert!(groups(&procs, 100.0, 100.0, &[]).is_empty());
         assert!(groups(&procs, 100.0, 0.0, &["/tmp/reaper-fixture/pro".into()]).is_empty());
+    }
+    #[test]
+    fn same_profile_pass_requires_orphaned_helper() {
+        // Orphan root: a target. The second browser shares the profile but its
+        // launcher is alive: it was rejected as a root and must not sneak back
+        // in through the same-profile recovery pass, nor its helper.
+        let root = browser(100, 1, "/tmp/reaper-fixture/prof", &["--headless"]);
+        let second = browser(101, 300, "/tmp/reaper-fixture/prof", &["--headless"]);
+        let mut live_helper = browser(102, 300, "/tmp/reaper-fixture/prof", &["--type=renderer"]);
+        live_helper.exe = "chromium".into();
+        // A genuinely orphaned helper (reparented to init) still joins.
+        let mut orphan_helper = browser(103, 1, "/tmp/reaper-fixture/prof", &["--type=renderer"]);
+        orphan_helper.exe = "chromium".into();
+        let launcher = Proc {
+            pid: 300,
+            ppid: 1,
+            rss: 0,
+            started: 0.0,
+            zombie: false,
+            exe: "python3".into(),
+            argv: vec!["python3".into(), "launcher.py".into()],
+            cwd: None,
+        };
+        let procs = vec![root, second, live_helper, orphan_helper, launcher];
+        let found = groups(&procs, 100.0, 0.0, &[]);
+        assert_eq!(found.len(), 1);
+        assert_eq!(found[0].root.pid, 100);
+        assert_eq!(found[0].pids(), vec![100, 103]);
+    }
+    #[test]
+    fn relative_profile_resolves_against_browser_cwd() {
+        let firefox = Proc {
+            pid: 1,
+            ppid: 0,
+            rss: 0,
+            started: 0.0,
+            zombie: false,
+            exe: "firefox".into(),
+            argv: vec!["firefox".into(), "-profile".into(), "relprof".into()],
+            cwd: Some("/job".into()),
+        };
+        assert_eq!(profile(&firefox).as_deref(), Some("/job/relprof"));
+        let absolute = Proc {
+            argv: vec!["firefox".into(), "-profile".into(), "/tmp/abs".into()],
+            ..firefox.clone()
+        };
+        assert_eq!(profile(&absolute).as_deref(), Some("/tmp/abs"));
+        let no_cwd = Proc {
+            cwd: None,
+            ..firefox.clone()
+        };
+        assert_eq!(profile(&no_cwd), None);
     }
     #[test]
     fn profile_argument_boundaries() {

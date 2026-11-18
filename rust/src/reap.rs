@@ -104,11 +104,27 @@ pub fn reap(groups: &[Group], grace: f64) -> io::Result<Result> {
 }
 pub type Cleanup = (Vec<String>, Vec<(String, String)>);
 pub fn cleanup(groups: &[Group]) -> io::Result<Cleanup> {
+    // The fresh process table decides: membership in `groups` is a claim that
+    // the processes died, not proof. A group member still alive in the
+    // snapshot keeps its profile.
     let procs = proc::list()?;
-    let reaped: Vec<i32> = groups.iter().flat_map(Group::pids).collect();
+    let targets: BTreeMap<i32, Proc> = groups
+        .iter()
+        .flat_map(|g| g.members.iter())
+        .filter(|p| p.pid > 1 && p.pid != std::process::id() as i32)
+        .map(|p| (p.pid, p.clone()))
+        .collect();
+    let survivors: std::collections::HashSet<i32> = same(&targets, procs.clone()).into_iter().collect();
     let (mut removed, mut kept) = (Vec::new(), Vec::new());
     for g in groups {
         let Some(path) = &g.profile else { continue };
+        if let Some(pid) = g.members.iter().map(|p| p.pid).find(|pid| survivors.contains(pid)) {
+            kept.push((
+                path.clone(),
+                format!("a group process is still running (pid {pid})"),
+            ));
+            continue;
+        }
         let p = std::path::Path::new(path);
         let refusal = if !p.is_dir() {
             Some("directory is gone".into())
@@ -119,20 +135,33 @@ pub fn cleanup(groups: &[Group]) -> io::Result<Cleanup> {
         } else if detect::is_default(path) {
             Some("default user profile".into())
         } else {
-            let live = procs.iter().find(|proc| {
-                !reaped.contains(&proc.pid)
-                    && !proc.zombie
-                    && detect::is_browser(proc)
-                    && (detect::profile(proc)
-                        .is_some_and(|s| detect::real(&s) == detect::real(path))
-                        || proc.argv.join(" ").contains(path)
-                        || proc
-                            .argv
-                            .join(" ")
-                            .contains(detect::real(path).to_string_lossy().as_ref()))
+            let live_reason = procs.iter().find_map(|proc| {
+                if proc.zombie || !detect::is_browser(proc) {
+                    return None;
+                }
+                if detect::profile(proc)
+                    .is_some_and(|s| detect::real(&s) == detect::real(path))
+                {
+                    return Some(format!("a live browser still uses it (pid {})", proc.pid));
+                }
+                if detect::profile(proc).is_none() && detect::raw_profile(proc).is_some() {
+                    // the live browser's relative profile cannot be resolved
+                    // against its working directory, so non-use cannot be proven
+                    return Some(format!(
+                        "a live browser uses a relative profile that cannot be resolved (pid {})",
+                        proc.pid
+                    ));
+                }
+                let args = proc.argv.join(" ");
+                if args.contains(path)
+                    || args.contains(detect::real(path).to_string_lossy().as_ref())
+                {
+                    return Some(format!("a live browser still uses it (pid {})", proc.pid));
+                }
+                None
             });
-            if let Some(proc) = live {
-                Some(format!("a live browser still uses it (pid {})", proc.pid))
+            if let Some(reason) = live_reason {
+                Some(reason)
             } else {
                 fs::read_link(p.join("SingletonLock"))
                     .ok()
@@ -165,4 +194,46 @@ pub fn cleanup(groups: &[Group]) -> io::Result<Cleanup> {
         }
     }
     Ok((removed, kept))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn cleanup_keeps_profile_of_surviving_member() {
+        // Membership in the supplied group is a claim, not proof: a member
+        // still alive in the fresh snapshot keeps its profile.
+        let mut child = std::process::Command::new("sleep")
+            .arg("60")
+            .spawn()
+            .expect("spawn sleep");
+        let pid = child.id() as i32;
+        let dir = std::env::temp_dir().join(format!("reaper-cleanup-test-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let profile = dir.to_string_lossy().into_owned();
+        let member = Proc {
+            pid,
+            ppid: 1,
+            rss: 0,
+            started: proc::now() - 0.5,
+            zombie: false,
+            exe: "firefox".into(),
+            argv: vec!["firefox".into(), "-profile".into(), profile.clone()],
+            cwd: None,
+        };
+        let group = Group {
+            root: member.clone(),
+            members: vec![member],
+            profile: Some(profile.clone()),
+            signals: vec!["headless".into()],
+            reason: "test".into(),
+        };
+        let (removed, kept) = cleanup(&[group]).expect("cleanup");
+        assert!(removed.is_empty(), "profile of a live group must not be removed");
+        assert_eq!(kept.len(), 1);
+        assert!(kept[0].1.contains("still running"), "{}", kept[0].1);
+        std::fs::remove_dir_all(&dir).ok();
+        child.kill().ok();
+    }
 }

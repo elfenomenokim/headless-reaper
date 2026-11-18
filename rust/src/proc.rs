@@ -10,6 +10,11 @@ pub struct Proc {
     pub zombie: bool,
     pub exe: String,
     pub argv: Vec<String>,
+    /// Working directory when it could be read; `None` when it cannot be
+    /// determined. A process enumerated but not fully readable stays in the
+    /// snapshot with the unread fields empty, so an inaccessible launcher is
+    /// never mistaken for a missing parent.
+    pub cwd: Option<String>,
 }
 impl Proc {
     pub fn name(&self) -> &str {
@@ -41,8 +46,24 @@ pub fn list() -> io::Result<Vec<Proc>> {
             continue;
         };
         let base = ent.path();
-        let Ok(stat) = fs::read_to_string(base.join("stat")) else {
-            continue;
+        let stat = match fs::read_to_string(base.join("stat")) {
+            Ok(stat) => stat,
+            Err(e) if e.kind() == io::ErrorKind::NotFound => continue, // exited mid-scan
+            Err(_) => {
+                // alive but unreadable: keep an unknown entry so a child does not
+                // mistake its live launcher for a missing parent
+                out.push(Proc {
+                    pid,
+                    ppid: -1,
+                    rss: 0,
+                    started: 0.0,
+                    zombie: false,
+                    exe: String::new(),
+                    argv: Vec::new(),
+                    cwd: None,
+                });
+                continue;
+            }
         };
         let Some(end) = stat.rfind(')') else { continue };
         let fields: Vec<&str> = stat[end + 1..].split_whitespace().collect();
@@ -56,7 +77,31 @@ pub fn list() -> io::Result<Vec<Proc>> {
         ) else {
             continue;
         };
-        let raw = fs::read(base.join("cmdline")).unwrap_or_default();
+        let cwd = fs::read_link(base.join("cwd"))
+            .ok()
+            .map(|p| p.to_string_lossy().into_owned());
+        let raw = match fs::read(base.join("cmdline")) {
+            Ok(raw) => raw,
+            Err(e) if e.kind() == io::ErrorKind::NotFound => continue, // exited mid-scan
+            Err(_) => {
+                // argv unreadable (permissions): keep the process with unknown
+                // argv; it can still serve as a live parent
+                let exe = fs::read_link(base.join("exe"))
+                    .map(|p| p.to_string_lossy().into_owned())
+                    .unwrap_or_default();
+                out.push(Proc {
+                    pid,
+                    ppid,
+                    rss: rss.max(0) as u64 * page,
+                    started: now - (uptime - start / ticks).max(0.0),
+                    zombie: fields[0] == "Z",
+                    exe,
+                    argv: Vec::new(),
+                    cwd,
+                });
+                continue;
+            }
+        };
         let mut argv: Vec<String> = raw
             .split(|&c| c == 0)
             .filter(|s| !s.is_empty())
@@ -79,9 +124,41 @@ pub fn list() -> io::Result<Vec<Proc>> {
             zombie: fields[0] == "Z",
             exe,
             argv,
+            cwd,
         });
     }
     Ok(out)
+}
+
+/// Parse `lsof -a -d cwd -Fn`: `p<pid>` lines followed by `n<path>`.
+/// The leading `/` of the path belongs to the path, not the field tag.
+fn parse_lsof_cwd(text: &str) -> std::collections::HashMap<i32, String> {
+    let mut cwd = std::collections::HashMap::new();
+    let mut current: Option<i32> = None;
+    for line in text.lines() {
+        if let Some(rest) = line.strip_prefix('p') {
+            current = rest.parse().ok();
+        } else if let Some(path) = line.strip_prefix('n') {
+            if let Some(pid) = current {
+                cwd.insert(pid, path.to_owned());
+            }
+        }
+    }
+    cwd
+}
+
+/// Best-effort cwd per pid (same user only); empty when lsof is unavailable.
+#[cfg(target_os = "macos")]
+fn macos_cwd() -> std::collections::HashMap<i32, String> {
+    let output = std::process::Command::new("lsof")
+        .args(["-a", "-d", "cwd", "-Fn"])
+        .output();
+    match output {
+        Ok(o) if o.status.success() => {
+            parse_lsof_cwd(&String::from_utf8_lossy(&o.stdout))
+        }
+        _ => std::collections::HashMap::new(),
+    }
 }
 
 #[cfg(target_os = "macos")]
@@ -148,6 +225,7 @@ pub fn list() -> io::Result<Vec<Proc>> {
                         String::new()
                     },
                     argv: Vec::new(),
+                    cwd: None,
                 });
                 continue;
             }
@@ -220,7 +298,12 @@ pub fn list() -> io::Result<Vec<Proc>> {
                 zombie: bsd.pbi_status == 5,
                 exe,
                 argv,
+                cwd: None,
             });
+        }
+        let cwd = macos_cwd();
+        for p in &mut out {
+            p.cwd = cwd.get(&p.pid).cloned();
         }
         Ok(out)
     }
@@ -235,6 +318,19 @@ pub fn list() -> io::Result<Vec<Proc>> {
             platform()
         ),
     ))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn lsof_cwd_parsing_keeps_the_leading_slash() {
+        let parsed = parse_lsof_cwd("p1\nfcwd\nn/\np123\nn/home/user\np999\n");
+        assert_eq!(parsed.get(&1).map(String::as_str), Some("/"));
+        assert_eq!(parsed.get(&123).map(String::as_str), Some("/home/user"));
+        assert!(!parsed.contains_key(&999));
+    }
 }
 pub fn platform() -> &'static str {
     if cfg!(target_os = "macos") {
