@@ -17,6 +17,7 @@ from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
+from headless_reaper import cli, detect
 from headless_reaper.detect import Group, find_groups, profile_path, raw_profile
 from headless_reaper.proc import Proc, _linux_procs, _parse_lsof_cwd
 
@@ -158,6 +159,64 @@ class TestCleanupProfilesChecksSurvivors(unittest.TestCase):
         self.assertEqual(removed, [profile])
         self.assertEqual(kept, [])
         self.assertFalse(os.path.exists(profile))
+
+
+class TestCleanupRefusesTempRoot(unittest.TestCase):
+    """`--remove-profiles` on a shared temp root itself must never rmtree it."""
+
+    def _group(self, path):
+        member = firefox(4250, 1, path, started=NOW - 5)
+        return Group(root=member, members=(member,), profile=path,
+                     signals=("headless",), reason="test")
+
+    def test_temp_root_itself_is_refused(self):
+        root = tempfile.mkdtemp(prefix="reaper-root-")
+        self.addCleanup(shutil.rmtree, root, True)
+        with mock.patch.object(reap, "list_processes", return_value=[]), \
+                mock.patch.object(detect, "_TEMP_ROOTS", (os.path.realpath(root),)):
+            removed, kept = reap.cleanup_profiles([self._group(root)])
+        self.assertEqual(removed, [])
+        self.assertIn("temp root", kept[0][1])
+        self.assertTrue(os.path.isdir(root))
+
+    def test_directory_beneath_a_temp_root_is_removed(self):
+        root = tempfile.mkdtemp(prefix="reaper-root-")
+        profile = os.path.join(root, "profile")
+        os.mkdir(profile)
+        self.addCleanup(shutil.rmtree, root, True)
+        with mock.patch.object(reap, "list_processes", return_value=[]), \
+                mock.patch.object(detect, "_TEMP_ROOTS", (os.path.realpath(root),)):
+            removed, kept = reap.cleanup_profiles([self._group(profile)])
+        self.assertEqual(kept, [])
+        self.assertEqual(removed, [profile])
+
+
+class TestSharedProfileMains(unittest.TestCase):
+    """Two orphaned mains that share one profile are one group, not a duplicate."""
+
+    def test_both_orphaned_mains_and_descendants_are_grouped(self):
+        profile = "/tmp/reaper-fixture/shared"
+        first = chromium(100, 1, profile, extra=("--headless",))
+        second = chromium(101, 1, profile, extra=("--headless",))
+        child = chromium(102, 101, profile, extra=("--type=renderer",))
+        groups = find_groups([first, second, child], NOW)
+        self.assertEqual(len(groups), 1)
+        self.assertEqual(groups[0].root.pid, 100)
+        self.assertEqual(groups[0].pids, [100, 101, 102])
+
+
+class TestDurationBound(unittest.TestCase):
+    """A finite but enormous duration must be a usage error, never a panic."""
+
+    def test_enormous_duration_is_rejected(self):
+        with self.assertRaises(ValueError) as caught:
+            cli.parse_duration("999999999999999999999", "--grace")
+        self.assertIn("too large", str(caught.exception))
+
+    def test_hundred_years_is_the_boundary(self):
+        self.assertEqual(cli.parse_duration("36500d", "--grace"), 3153600000.0)
+        with self.assertRaises(ValueError):
+            cli.parse_duration("36501d", "--grace")
 
 
 if __name__ == "__main__":

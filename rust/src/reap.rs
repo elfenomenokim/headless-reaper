@@ -130,6 +130,8 @@ pub fn cleanup(groups: &[Group]) -> io::Result<Cleanup> {
             Some("directory is gone".into())
         } else if p.is_symlink() {
             Some("path is a symlink".into())
+        } else if detect::is_temp_root(path) {
+            Some("path is a temp root".into())
         } else if !detect::is_temp(path) {
             Some("not under a temp root".into())
         } else if detect::is_default(path) {

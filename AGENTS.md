@@ -38,8 +38,9 @@ No separate linter is configured. Follow each module's current formatting.
 - Compare start times before signals so a reused PID cannot become a target.
 - Dry-run first; read the groups, then use `--path` to limit cleanup to your job.
 - Never use a broad `pkill` against browser names. Signal only the owned fixture.
-- Profile removal requires a temporary root, no live use, no active singleton
-  lock and no surviving process in the group.
+- Profile removal requires a temporary root beneath a temp directory, never the
+  temp root itself, no live use, no active singleton lock and no surviving
+  process in the group.
 - Clone cleanup stays inside recognized bundle roots under the current user's X
   temp directory. Preserve directory symlinks and hard-linked live executables.
 - Failed open/mapped-file inspection prevents clone deletion.
@@ -62,10 +63,11 @@ A change is a real defect when it:
 
 - makes a personal browser profile, or a browser with a live launcher, a cleanup target.
 - signals a PID without comparing start times first, so a reused PID can be hit.
-- removes a profile while the group has a live process, an active singleton lock, or a root outside the temporary tree.
+- removes a profile while the group has a live process, an active singleton lock, or a root outside the temporary tree, or when the profile is a shared temp root itself.
 - reaches outside the recognized bundle roots for clones, or deletes a directory symlink or a hard-linked live executable.
 - treats an unreadable parent as a missing parent, or drops an inaccessible PID instead of keeping it as unknown live.
 - leaves flags, JSON fields or exit codes apart between Python and Rust, or turns Windows into an empty success instead of exit 2.
+- drops one of two orphaned mains that share a profile, with its process tree, from the report.
 - introduces a broad `pkill` against browser names.
 
 Not defects: wording, formatting, comment style, requested extra tests, or a renamed helper.

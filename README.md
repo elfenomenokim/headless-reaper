@@ -104,12 +104,14 @@ Saved measurements from 2026-11-17: median of 20 sequential subprocess runs, war
 |---|---|---|
 | `--kill` | Off | SIGTERM, wait, then SIGKILL for surviving targets |
 | `--path PREFIX` | All profiles | Limit profile paths; repeat for several prefixes |
-| `--min-age DURATION` | `0` | Skip younger groups; accepts `30s`, `10m`, `2h`, `1d` |
+| `--min-age DURATION` | `0` | Skip younger groups; accepts `30s`, `10m`, `2h`, `1d`, up to 100 years |
 | `--grace DURATION` | `10s` | Wait between SIGTERM and SIGKILL |
 | `--remove-profiles` | Off | With `--kill`, remove eligible temporary profiles |
 | `--json` | Off | Report groups, totals, cleanup results and errors as JSON |
 | `--clean-clones` | Off | Inspect unused macOS code-signing clones; add `--kill` to delete |
 | `--all-leftovers` | Off | Combine `--kill`, `--clean-clones` and `--remove-profiles` |
+
+A duration above 100 years is a usage error in `--min-age` and `--grace`.
 
 Exit **0** means a dry run succeeded or all targets were reaped. Exit **1** means a target survived or inspection failed. Exit **2** means invalid usage or an unsupported platform.
 
@@ -130,7 +132,7 @@ The tool groups descendants under the root. Before signalling, it compares proce
 
 ### Profile and clone cleanup
 
-`--remove-profiles` requires `--kill`. Cleanup preserves a profile outside temporary roots, one still used by a live browser, one with a live singleton lock, or one whose group left a survivor.
+`--remove-profiles` requires `--kill`. Cleanup preserves a profile outside temporary roots, a shared temp root itself such as `/tmp`, one still used by a live browser, one with a live singleton lock, or one whose group left a survivor.
 
 On macOS, `--clean-clones` examines recognized browser `code_sign_clone.*` directories under the current user's X temp directory. It uses a ten-minute minimum age unless you set one. Directory symlinks and live uses are preserved; matching includes device/inode identity because clones may share hard links. An open-file scan failure prevents deletion.
 

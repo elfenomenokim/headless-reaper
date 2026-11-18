@@ -102,12 +102,14 @@ headless-reaper 0.1.0: no orphaned headless browsers (1024 processes scanned, pa
 |---|---|---|
 | `--kill` | 꺼짐 | SIGTERM 후 대기, 남은 대상에 SIGKILL |
 | `--path PREFIX` | 모든 프로필 | 프로필 경로로 대상 제한, 반복 지정 가능 |
-| `--min-age DURATION` | `0` | 더 최근에 시작된 그룹 제외: `30s`, `10m`, `2h`, `1d` |
+| `--min-age DURATION` | `0` | 더 최근에 시작된 그룹 제외: `30s`, `10m`, `2h`, `1d`, 최대 100년 |
 | `--grace DURATION` | `10s` | SIGTERM과 SIGKILL 사이 대기 |
 | `--remove-profiles` | 꺼짐 | `--kill`과 함께 정리 가능한 임시 프로필 제거 |
 | `--json` | 꺼짐 | 그룹·합계·정리 결과·오류를 JSON으로 출력 |
 | `--clean-clones` | 꺼짐 | macOS 코드 서명 복제본 조회, 삭제하려면 `--kill` 추가 |
 | `--all-leftovers` | 꺼짐 | `--kill`, `--clean-clones`, `--remove-profiles` 동시 적용 |
+
+`--min-age`와 `--grace`에서 100년을 넘는 기간은 사용법 오류입니다.
 
 종료 코드 **0**은 조회 성공 또는 대상 전체 정리, **1**은 남은 대상이나 조회 실패, **2**는 사용법 오류 또는 미지원 플랫폼입니다.
 
@@ -128,7 +130,7 @@ Chrome/Chromium·Edge·Firefox·WebKit 계열의 주 프로세스만 그룹 시�
 
 ### 프로필과 복제본 정리
 
-`--remove-profiles`는 `--kill`이 필요합니다. 임시 폴더 밖의 프로필, 살아 있는 브라우저가 쓰는 프로필, 유효한 singleton 잠금이 있는 프로필, 정리 후 생존 프로세스가 남은 그룹의 프로필은 보존합니다.
+`--remove-profiles`는 `--kill`이 필요합니다. 임시 폴더 밖의 프로필, `/tmp`처럼 공유 임시 폴더 자체, 살아 있는 브라우저가 쓰는 프로필, 유효한 singleton 잠금이 있는 프로필, 정리 후 생존 프로세스가 남은 그룹의 프로필은 보존합니다.
 
 macOS의 `--clean-clones`는 현재 사용자의 X 임시 폴더에서 알려진 브라우저의 `code_sign_clone.*` 폴더만 살핍니다. 기본 최소 나이는 10분입니다. 디렉터리 심볼릭 링크와 사용 중인 파일은 보존합니다. 하드 링크를 구분하려고 경로뿐 아니라 device/inode도 비교합니다. 열린 파일 조회에 실패하면 삭제하지 않습니다.
 

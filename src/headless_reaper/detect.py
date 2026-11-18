@@ -36,6 +36,7 @@ __all__ = [
     "is_default_profile",
     "is_helper",
     "is_temp_path",
+    "is_temp_root",
     "profile_path",
     "raw_profile",
 ]
@@ -219,6 +220,12 @@ def profile_path(proc: Proc) -> str | None:
     return os.path.abspath(value)
 
 
+def is_temp_root(path: str) -> bool:
+    """True when the path *is* a shared temp root, not a directory beneath one."""
+    real = os.path.realpath(path)
+    return any(real == root for root in _TEMP_ROOTS)
+
+
 def is_temp_path(path: str) -> bool:
     real = os.path.realpath(path)
     for root in _TEMP_ROOTS:
@@ -371,7 +378,11 @@ def find_groups(
     for proc in procs:
         children.setdefault(proc.ppid, []).append(proc)
 
-    roots: dict[str, tuple[_Candidate, str]] = {}
+    # Orphaned mains are collected by profile instead of keeping only the
+    # earliest: two mains can share one profile (a crashed launcher leaves its
+    # browser behind, then a second one starts on the same profile), and the
+    # later tree must be reported and reaped too.
+    candidates: dict[str, list[tuple[_Candidate, str]]] = {}
     for proc in procs:
         candidate = _candidate(proc)
         if candidate is None:
@@ -379,18 +390,21 @@ def find_groups(
         gone, reason = _launcher_gone(proc, by_pid)
         if not gone:
             continue
-        current = roots.get(candidate.key)
-        if current is None or proc.started_at < current[0].proc.started_at:
-            roots[candidate.key] = (candidate, reason)
+        candidates.setdefault(candidate.key, []).append((candidate, reason))
 
     groups: list[Group] = []
-    for key, (candidate, reason) in roots.items():
+    for key, found in candidates.items():
+        first = min(found, key=lambda item: (item[0].proc.started_at, item[0].proc.pid))
+        members: dict[int, Proc] = {}
+        for candidate, _reason in found:
+            for member in _members(candidate.proc, key, procs, children, by_pid):
+                members[member.pid] = member
         group = Group(
-            root=candidate.proc,
-            members=_members(candidate.proc, key, procs, children, by_pid),
-            profile=candidate.profile,
-            signals=candidate.signals,
-            reason=reason,
+            root=first[0].proc,
+            members=tuple(sorted(members.values(), key=lambda proc: proc.pid)),
+            profile=first[0].profile,
+            signals=first[0].signals,
+            reason=first[1],
         )
         if group.age_seconds(now) < min_age:
             continue

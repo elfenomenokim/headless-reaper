@@ -71,6 +71,20 @@ pub fn is_temp(path: &str) -> bool {
             p.contains("/var/folders/") && p.contains("/T/")
         }
 }
+/// True when the path *is* a shared temp root, not a directory beneath one.
+pub fn is_temp_root(path: &str) -> bool {
+    let p = real(path);
+    [
+        "/tmp",
+        "/var/tmp",
+        "/private/tmp",
+        "/private/var/tmp",
+        "/dev/shm",
+    ]
+    .iter()
+    .any(|root| p == real(root))
+        || p == real(&env::temp_dir().to_string_lossy())
+}
 pub fn is_default(path: &str) -> bool {
     let home = env::var("HOME").unwrap_or_default();
     let roots: &[&str] = if cfg!(target_os = "macos") {
@@ -289,7 +303,7 @@ pub fn groups(procs: &[Proc], now: f64, min_age: f64, paths: &[String]) -> Vec<G
     for p in procs {
         children.entry(p.ppid).or_default().push(p)
     }
-    let mut roots: BTreeMap<PathBuf, Group> = BTreeMap::new();
+    let mut roots: BTreeMap<PathBuf, Vec<Group>> = BTreeMap::new();
     for p in procs {
         if !is_browser(p) || helper(p) {
             continue;
@@ -352,29 +366,36 @@ pub fn groups(procs: &[Proc], now: f64, min_age: f64, paths: &[String]) -> Vec<G
             .as_ref()
             .map(|s| real(s))
             .unwrap_or_else(|| PathBuf::from(format!("pid:{}", p.pid)));
-        if roots.get(&key).is_none_or(|g| p.started < g.root.started) {
-            roots.insert(
-                key,
-                Group {
-                    root: p.clone(),
-                    members: Vec::new(),
-                    profile,
-                    signals,
-                    reason,
-                },
-            );
-        }
+        // Every orphaned main roots a tree. Two mains can share one profile
+        // (a crashed launcher leaves its browser, then a second one starts on
+        // the same profile), and the later tree must still be reported.
+        roots.entry(key).or_default().push(Group {
+            root: p.clone(),
+            members: Vec::new(),
+            profile,
+            signals,
+            reason,
+        });
     }
     let mut out = Vec::new();
-    for (key, mut g) in roots {
+    for (key, mut found) in roots {
+        found.sort_by(|a, b| {
+            a.root
+                .started
+                .total_cmp(&b.root.started)
+                .then(a.root.pid.cmp(&b.root.pid))
+        });
+        let mut first = found.remove(0);
         let mut seen = HashSet::new();
-        let mut stack = vec![g.root.pid];
-        while let Some(pid) = stack.pop() {
-            if !seen.insert(pid) {
-                continue;
-            }
-            if let Some(kids) = children.get(&pid) {
-                stack.extend(kids.iter().map(|p| p.pid))
+        for g in std::iter::once(&first).chain(found.iter()) {
+            let mut stack = vec![g.root.pid];
+            while let Some(pid) = stack.pop() {
+                if !seen.insert(pid) {
+                    continue;
+                }
+                if let Some(kids) = children.get(&pid) {
+                    stack.extend(kids.iter().map(|p| p.pid))
+                }
             }
         }
         // Only genuinely orphaned helpers may join through the profile match:
@@ -388,22 +409,22 @@ pub fn groups(procs: &[Proc], now: f64, min_age: f64, paths: &[String]) -> Vec<G
                 seen.insert(p.pid);
             }
         }
-        g.members = procs
+        first.members = procs
             .iter()
             .filter(|p| seen.contains(&p.pid))
             .cloned()
             .collect();
-        g.members.sort_by_key(|p| p.pid);
-        if g.age(now) < min_age
+        first.members.sort_by_key(|p| p.pid);
+        if first.age(now) < min_age
             || (!paths.is_empty()
-                && !g
+                && !first
                     .profile
                     .as_ref()
                     .is_some_and(|s| paths.iter().any(|prefix| under(s, prefix))))
         {
             continue;
         }
-        out.push(g);
+        out.push(first);
     }
     out.sort_by(|a, b| {
         b.age(now)
@@ -528,5 +549,24 @@ mod tests {
         assert!(is_automation("/opt/puppeteer_dev_chrome_profile-abc"));
         assert!(!is_automation("/opt/playwright_personal"));
         assert!(!under("/tmp/reaper-fixture-other", "/tmp/reaper-fixture"));
+    }
+    #[test]
+    fn temp_root_itself_is_not_a_profile() {
+        assert!(is_temp_root("/tmp"));
+        assert!(is_temp_root(&env::temp_dir().to_string_lossy()));
+        assert!(!is_temp_root("/tmp/reaper-fixture/prof"));
+    }
+    #[test]
+    fn shared_profile_mains_are_one_group() {
+        // Two orphaned mains on one profile both root a tree; the second main
+        // and its helper must not be dropped as a duplicate profile.
+        let first = browser(100, 1, "/tmp/reaper-fixture/shared", &["--headless"]);
+        let second = browser(101, 1, "/tmp/reaper-fixture/shared", &["--headless"]);
+        let mut child = browser(102, 101, "/tmp/reaper-fixture/shared", &["--type=renderer"]);
+        child.exe = "chromium".into();
+        let found = groups(&[first, second, child], 100.0, 0.0, &[]);
+        assert_eq!(found.len(), 1);
+        assert_eq!(found[0].root.pid, 100);
+        assert_eq!(found[0].pids(), vec![100, 101, 102]);
     }
 }

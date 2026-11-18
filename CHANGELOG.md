@@ -3,6 +3,18 @@
 All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses `MAJOR.MINOR.PATCH`.
 
+## [0.1.5] - 2026-11-18
+
+### Fixed
+
+- `--remove-profiles` refuses a shared temp root itself (`/tmp`, `/var/tmp`, `/dev/shm`, `$TMPDIR`),
+  so a profile set to the temp directory can no longer delete the whole tree; both editions require
+  the profile to be strictly beneath a temp root.
+- Two orphaned browser mains that share one profile are reported as one group with both process
+  trees, instead of dropping the later main and its helpers.
+- `--min-age` and `--grace` reject a duration above 100 years in both editions; a finite but
+  enormous value used to panic the Rust edition after SIGTERM, so SIGKILL was never sent.
+
 ## [0.1.4] - 2026-11-18
 
 ### Fixed

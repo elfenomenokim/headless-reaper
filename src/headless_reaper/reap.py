@@ -13,6 +13,7 @@ from .detect import (
     is_browser,
     is_default_profile,
     is_temp_path,
+    is_temp_root,
     profile_path,
     raw_profile,
 )
@@ -119,6 +120,8 @@ def _profile_refusal(path: str, procs: list[Proc]) -> str | None:
         return "directory is gone"
     if os.path.islink(path):
         return "path is a symlink"
+    if is_temp_root(path):
+        return "path is a temp root"
     if not is_temp_path(path):
         return "not under a temp root"
     if is_default_profile(path):

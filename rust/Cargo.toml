@@ -1,6 +1,6 @@
 [package]
 name = "headless-reaper"
-version = "0.1.4"
+version = "0.1.5"
 edition = "2021"
 description = "Find and stop orphaned automation browsers; dry run by default"
 license = "MIT"

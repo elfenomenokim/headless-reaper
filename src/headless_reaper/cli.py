@@ -25,6 +25,9 @@ ENV_GRACE = "HEADLESS_REAPER_GRACE"
 # `char::is_ascii_digit`, so a Unicode decimal digit must fail in both.
 _DURATION_RE = re.compile(r"^([0-9]+(?:\.[0-9]+)?)\s*([smhd]?)$", re.IGNORECASE)
 _UNIT_SECONDS = {"": 1.0, "s": 1.0, "m": 60.0, "h": 3600.0, "d": 86400.0}
+# 100 years. A longer wait is a typo, and the Rust edition cannot represent
+# every large f64 in a Duration (from_secs_f64 panics after SIGTERM).
+MAX_DURATION_SECONDS = 100.0 * 365.0 * 24.0 * 3600.0
 
 
 class _Parser(argparse.ArgumentParser):
@@ -40,8 +43,12 @@ def parse_duration(text: str, option: str) -> float:
         seconds = float(match.group(1)) * _UNIT_SECONDS[match.group(2).lower()]
         # A digit string long enough to overflow f64 must be a usage error, not
         # an infinity that later crashes the report (`int(inf)`).
-        if math.isfinite(seconds):
+        if math.isfinite(seconds) and seconds <= MAX_DURATION_SECONDS:
             return seconds
+        if math.isfinite(seconds):
+            raise ValueError(
+                f"{option}: duration is too large (maximum 100y), got {text!r}"
+            )
     raise ValueError(
         f"{option}: expected a duration such as 30s, 10m, 2h or 1d, got {text!r}"
     )

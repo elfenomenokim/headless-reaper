@@ -19,6 +19,9 @@ struct Args {
     paths: Vec<String>,
 }
 fn duration(text: &str, option: &str) -> Result<f64, String> {
+    // 100 years: a longer wait is a typo, and Duration::from_secs_f64 panics
+    // above its own (much larger) limit after SIGTERM has been sent.
+    const MAX_DURATION_SECONDS: f64 = 100.0 * 365.0 * 24.0 * 3600.0;
     let raw = text.trim();
     let (number, multiplier) = match raw.chars().last() {
         Some(c) if c.is_ascii_alphabetic() => (
@@ -41,8 +44,15 @@ fn duration(text: &str, option: &str) -> Result<f64, String> {
             .all(|s| !s.is_empty() && s.chars().all(|c| c.is_ascii_digit()));
     if valid && multiplier > 0.0 {
         if let Ok(n) = number.parse::<f64>() {
-            if (n * multiplier).is_finite() {
-                return Ok(n * multiplier);
+            let seconds = n * multiplier;
+            if seconds.is_finite() {
+                if seconds > MAX_DURATION_SECONDS {
+                    return Err(format!(
+                        "{option}: duration is too large (maximum 100y), got {}",
+                        py_repr(text)
+                    ));
+                }
+                return Ok(seconds);
             }
         }
     }
@@ -326,4 +336,22 @@ fn run() -> i32 {
 }
 fn main() {
     std::process::exit(run());
+}
+
+#[cfg(test)]
+mod tests {
+    use super::duration;
+
+    #[test]
+    fn enormous_duration_is_rejected() {
+        // A finite but enormous value used to pass is_finite and then panic in
+        // Duration::from_secs_f64 after SIGTERM, so SIGKILL was never sent.
+        assert!(duration("999999999999999999999", "--grace").is_err());
+        assert!(duration("36501d", "--grace").is_err());
+    }
+
+    #[test]
+    fn hundred_years_is_the_boundary() {
+        assert_eq!(duration("36500d", "--grace").unwrap(), 3153600000.0);
+    }
 }
