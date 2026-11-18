@@ -18,10 +18,12 @@ macOS에서 Rust 판은 스캔 11.3ms, 시작 2.9ms입니다. Python 판은 같�
 
 </div>
 
+<p align="center">
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/elfenomenokim/headless-reaper/main/docs/demo/dark.gif">
   <img src="https://raw.githubusercontent.com/elfenomenokim/headless-reaper/main/docs/demo/light.gif" alt="A disposable orphan browser is listed, reaped, and absent from the final scan" width="1200">
 </picture>
+</p>
 
 영상은 전용 headless shell을 실행한 부모 프로세스를 먼저 종료한 뒤, 그 브라우저만 찾아 정리합니다. 프로필은 `/tmp` 아래에 있으며 Google Chrome은 실행하지 않습니다. [녹화 소스](docs/demo/light.tape).
 

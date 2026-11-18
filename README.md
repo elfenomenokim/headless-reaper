@@ -18,10 +18,12 @@ On macOS the Rust edition scans in 11.3 ms and starts in 2.9 ms; the Python edit
 
 </div>
 
+<p align="center">
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/elfenomenokim/headless-reaper/main/docs/demo/dark.gif">
   <img src="https://raw.githubusercontent.com/elfenomenokim/headless-reaper/main/docs/demo/light.gif" alt="A disposable orphan browser is listed, reaped, and absent from the final scan" width="1200">
 </picture>
+</p>
 
 The demo starts a dedicated headless shell from a short-lived parent, then reaps that browser's `/tmp` profile. It never launches Google Chrome. [Recording source](docs/demo/light.tape).
 
