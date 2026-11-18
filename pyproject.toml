@@ -1,0 +1,55 @@
+[build-system]
+requires = ["maturin>=1.8,<2"]
+build-backend = "maturin"
+
+[project]
+name = "headless-reaper"
+version = "0.1.4"
+description = "A command-line tool that finds and stops orphaned headless browsers, with a dry run by default."
+readme = "README.md"
+requires-python = ">=3.9"
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [{ name = "El Fenomeno" }]
+keywords = [
+  "headless",
+  "chrome",
+  "chromium",
+  "playwright",
+  "puppeteer",
+  "orphan",
+  "zombie",
+  "process",
+  "memory",
+  "cli",
+]
+classifiers = [
+  "Development Status :: 4 - Beta",
+  "Environment :: Console",
+  "Intended Audience :: Developers",
+  "Operating System :: MacOS",
+  "Operating System :: POSIX :: Linux",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Rust",
+  "Topic :: Software Development :: Testing",
+  "Topic :: System :: Systems Administration",
+]
+dependencies = []
+
+[project.urls]
+Homepage = "https://github.com/elfenomenokim/headless-reaper"
+Repository = "https://github.com/elfenomenokim/headless-reaper"
+Issues = "https://github.com/elfenomenokim/headless-reaper/issues"
+
+[tool.maturin]
+bindings = "bin"
+module-name = "headless_reaper"
+manifest-path = "rust/Cargo.toml"
+python-source = "src"
+python-packages = ["headless_reaper"]
+strip = true
+include = [
+  { path = "src/headless_reaper/*.py", format = "sdist" },
+  { path = "rust/parity.sh", format = "sdist" },
+  { path = "README.ko.md", format = "sdist" },
+]

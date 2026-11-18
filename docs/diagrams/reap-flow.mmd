@@ -1,0 +1,8 @@
+flowchart TD
+    A["Browser tree"] --> B{"Eligible?"}
+    B -->|No| K["Keep it"]
+    B -->|Yes| C["List group"]
+    C --> D{"--kill?"}
+    D -->|No| E["Done"]
+    D -->|Yes| F["Recheck PIDs<br/>TERM → wait → KILL"]
+    F --> G["Report survivors"]
