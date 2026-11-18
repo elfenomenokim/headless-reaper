@@ -1,0 +1,32 @@
+usage: headless-reaper [-h] [--kill] [--clean-clones] [--all-leftovers]
+                       [--min-age DURATION] [--path PREFIX]
+                       [--remove-profiles] [--grace DURATION] [--json]
+                       [--version]
+
+Find headless browser processes that a test or automation tool left behind after its launcher exited. Dry run by default.
+
+options:
+  -h, --help          show this help message and exit
+  --kill              terminate the groups (SIGTERM, wait, then SIGKILL)
+  --clean-clones      inspect macOS browser code-sign clones; with --kill,
+                      remove unused old clones
+  --all-leftovers     same as --kill --clean-clones --remove-profiles
+  --min-age DURATION  skip groups younger than this, e.g. 10m or 2h (default:
+                      0, or 10m with --clean-clones; or
+                      HEADLESS_REAPER_MIN_AGE)
+  --path PREFIX       only user-data-dirs under PREFIX; repeatable (default:
+                      every path; or HEADLESS_REAPER_PATH)
+  --remove-profiles   with --kill, delete the temp profile of a reaped group
+                      when nothing uses it
+  --grace DURATION    wait between SIGTERM and SIGKILL (default: 10s; or
+                      HEADLESS_REAPER_GRACE)
+  --json              print one machine-readable object
+  --version           show program's version number and exit
+
+A process is a target only when it is a browser main process, carries an
+automation signal (--headless, a temp/automation --user-data-dir, or a
+remote debugging switch with such a profile), and its launcher is gone.
+A visible browser on a real user profile is never touched.
+
+exit codes: 0 dry run or every target reaped, 1 a target survived or the
+process table could not be read, 2 bad usage or an unsupported platform.

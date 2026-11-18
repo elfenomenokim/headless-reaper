@@ -1,0 +1,13 @@
+{
+  "name": "headless-reaper",
+  "sentence": "A command-line tool that finds and stops orphaned headless browsers, with a dry run by default.",
+  "tag": "PYTHON · RUST",
+  "terminal": [
+    "$ headless-reaper --kill",
+    "reaped 1 group",
+    "SIGTERM to 4 processes; SIGKILL to 0",
+    "$ headless-reaper",
+    "no orphaned headless browsers"
+  ],
+  "flow": ["Find orphan group", "Dry run or signal", "Scan again"]
+}
