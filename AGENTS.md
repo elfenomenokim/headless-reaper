@@ -55,3 +55,17 @@ No separate linter is configured. Follow each module's current formatting.
 - `docs/demo/record.sh` records one VHS process at a time.
 - Keep both READMEs and repository/package descriptions aligned.
 - Add media to public.json. Version changes and public uploads need a release instruction.
+
+## Code Review Rules
+
+A change is a real defect when it:
+
+- makes a personal browser profile, or a browser with a live launcher, a cleanup target.
+- signals a PID without comparing start times first, so a reused PID can be hit.
+- removes a profile while the group has a live process, an active singleton lock, or a root outside the temporary tree.
+- reaches outside the recognized bundle roots for clones, or deletes a directory symlink or a hard-linked live executable.
+- treats an unreadable parent as a missing parent, or drops an inaccessible PID instead of keeping it as unknown live.
+- leaves flags, JSON fields or exit codes apart between Python and Rust, or turns Windows into an empty success instead of exit 2.
+- introduces a broad `pkill` against browser names.
+
+Not defects: wording, formatting, comment style, requested extra tests, or a renamed helper.
