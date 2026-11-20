@@ -40,8 +40,9 @@ personal browser.
 
 - **A test or a fixture** that shows the misdetection, and the same command after the fix.
 - **A line under Unreleased** in [CHANGELOG.md](CHANGELOG.md) when a user will notice.
-- **The platforms you did not test** written in the pull request. WebKit and the Windows backend
-  have no exercised path yet.
+- **The platforms you did not test** written in the pull request. The `tests` workflow runs the Rust
+  and Python suites plus empty-scope parity on Ubuntu and macOS with Python 3.9 and 3.13; WebKit and
+  the unsupported Windows backend remain unexercised.
 
 ## Review
 
