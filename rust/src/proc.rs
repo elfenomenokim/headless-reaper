@@ -326,9 +326,9 @@ mod tests {
 
     #[test]
     fn lsof_cwd_parsing_keeps_the_leading_slash() {
-        let parsed = parse_lsof_cwd("p1\nfcwd\nn/\np123\nn/home/user\np999\n");
+        let parsed = parse_lsof_cwd("p1\nfcwd\nn/\np123\nn/srv/work\np999\n");
         assert_eq!(parsed.get(&1).map(String::as_str), Some("/"));
-        assert_eq!(parsed.get(&123).map(String::as_str), Some("/home/user"));
+        assert_eq!(parsed.get(&123).map(String::as_str), Some("/srv/work"));
         assert!(!parsed.contains_key(&999));
     }
 }

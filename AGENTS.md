@@ -1,5 +1,23 @@
 # AGENTS.md
 
+## Set up for a user
+
+Goal: `headless-reaper` runs on the user's machine and a dry run reports no leftover headless browsers. It targets browsers that a test or automation job left behind, never the user's own browser.
+
+1. Check what is present.
+   - `uname -s` prints `Darwin` or `Linux` (Windows exits 2 by design; stop and say so).
+   - `uv --version` prints a version. If not: `curl -LsSf https://astral.sh/uv/install.sh | sh`, then `export PATH="$HOME/.local/bin:$PATH"` (or open a new shell).
+2. Install: `uv tool install headless-reaper`. It ends with `Installed 1 executable: headless-reaper`; `headless-reaper --version` prints `headless-reaper 0.1.5` or newer. (`uv tool update-shell` puts `~/.local/bin` on PATH for later shells.) No Rust is needed; the wheel carries the binary.
+3. Nothing here needs the person, except knowing which job's browsers to clean: ask "어떤 작업(테스트, 자동화)이 띄운 브라우저를 정리할까요? 그 작업의 임시 프로필 폴더(`/tmp/...`)를 알려주세요." Do not guess a path.
+4. Prove it, read-only: `headless-reaper --path /tmp/reaper-setup-check` prints
+   `headless-reaper 0.1.5: no orphaned headless browsers (... processes scanned, paths /tmp/reaper-setup-check).` and exits 0. It signals nothing without `--kill`.
+5. Real use: run `headless-reaper --path <that job's profile folder>`, read the groups with the user, then add `--kill` only for groups the user agrees are leftovers.
+6. If it fails, in this order:
+   - `headless-reaper: command not found`: `~/.local/bin` is not on PATH (step 1).
+   - Exit 2 on Windows: unsupported platform, no workaround.
+   - It lists a group you did not expect: do not `--kill`; a service started by launchd or systemd can look orphaned. Ask the user whose browser it is.
+   - Nothing is listed but a browser is plainly leftover: the profile is not under a temp directory or the browser is not headless; the detector skips those on purpose.
+
 ## Layout
 
 - `src/headless_reaper/proc.py`: process snapshots.
