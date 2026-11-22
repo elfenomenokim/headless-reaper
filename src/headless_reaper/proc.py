@@ -15,6 +15,13 @@ import sys
 import time
 from dataclasses import dataclass
 
+try:
+    import bounded_run
+except ImportError:
+    # Optional: without the package the reference edition keeps its standard-
+    # library-only behavior, exactly as before.
+    bounded_run = None
+
 __all__ = ["Proc", "UnsupportedPlatform", "list_processes"]
 
 
@@ -98,6 +105,10 @@ def _parse_lsof_cwd(text: str) -> dict[int, str]:
 
 def _macos_cwd() -> dict[int, str]:
     """Best-effort cwd per pid (same user only); empty when lsof is unavailable."""
+    if bounded_run is not None:
+        captured = _bounded_lsof_cwd()
+        if captured is not None:
+            return captured
     try:
         completed = subprocess.run(
             ["lsof", "-a", "-d", "cwd", "-Fn"],
@@ -110,6 +121,33 @@ def _macos_cwd() -> dict[int, str]:
     if completed.returncode != 0:
         return {}
     return _parse_lsof_cwd(completed.stdout)
+
+
+_LSOF_CWD_TIMEOUT_SECONDS = 30
+# A same-user cwd listing stays far below this; the cap only guards a runaway
+# kernel wait, and incomplete output is discarded like an unreadable snapshot.
+_MAX_LSOF_OUTPUT_BYTES = 32 * 1024 * 1024
+
+
+def _bounded_lsof_cwd() -> dict[int, str] | None:
+    """lsof cwd snapshot through run-bounded; None when the result is not trustworthy."""
+    try:
+        result = bounded_run.run(
+            ["lsof", "-a", "-d", "cwd", "-Fn"],
+            timeout=_LSOF_CWD_TIMEOUT_SECONDS,
+            idle=0,
+            no_reap=True,
+            max_output=_MAX_LSOF_OUTPUT_BYTES,
+            max_total_output=_MAX_LSOF_OUTPUT_BYTES,
+            kill_on_cap=True,
+            env=dict(os.environ),
+            env_exact=True,
+        )
+    except (OSError, ValueError):
+        return None
+    if result.classification != "ok" or result.stdout_truncated or result.stderr_truncated:
+        return None
+    return _parse_lsof_cwd(result.stdout.decode("utf-8", errors="replace"))
 
 
 def _macos_procs(now: float) -> list[Proc]:

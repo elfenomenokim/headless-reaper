@@ -3,6 +3,17 @@
 All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses `MAJOR.MINOR.PATCH`.
 
+## [0.1.6] - 2026-11-22
+
+### Changed
+
+- The macOS working-directory snapshot (`_macos_cwd`) reads `lsof` through
+  [run-bounded](https://pypi.org/project/run-bounded/) 0.1.8 when the package is
+  installed: a wall deadline with no reap after a kill, plus a combined output cap.
+  A timed-out, killed or truncated listing is discarded, so an incomplete snapshot
+  is never mistaken for a finished one. Without the package the reference edition
+  keeps its previous standard-library-only behavior.
+
 ## [0.1.5] - 2026-11-18
 
 ### Fixed
